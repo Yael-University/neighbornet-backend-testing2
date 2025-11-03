@@ -1,0 +1,323 @@
+NeighborNet Backend - Setup Guide
+Hey team! This guide will help you get the NeighborNet backend running on your machine. Should take about 10-15 minutes.
+What You'll Need
+Before starting, install these:
+
+Node.js - Version 20.x or higher
+
+Download: https://nodejs.org/
+Get the LTS version (the one that says "Recommended for most users")
+Check it worked: Open terminal and run node --version
+
+
+MySQL - Version 8.0 or higher
+
+Mac: https://dev.mysql.com/downloads/mysql/ or brew install mysql
+Windows: https://dev.mysql.com/downloads/installer/
+During install, it'll ask you to set a root password - pick something and WRITE IT DOWN
+
+
+Git (to clone the repo)
+
+Download: https://git-scm.com/downloads
+
+
+Postman (for testing the API)
+
+Download: https://www.postman.com/downloads/
+
+
+
+Getting Started
+Step 1: Get the Codegit clone <repository-url>
+cd neighbornet-backend
+```
+
+Or if you got it as a zip file, just unzip it and open terminal in that folder.
+
+### Step 2: Install Dependencies
+```
+npm install
+```
+
+This will download all the packages we need. Takes about a minute.
+
+### Step 3: Configure Your Environment
+
+Create a file called `.env` in the root folder (same level as `package.json`):
+```
+PORT=5050
+NODE_ENV=development
+FRONTEND_URL=http://localhost:3000
+
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=YOUR_MYSQL_ROOT_PASSWORD_HERE
+DB_NAME=neighbornet
+
+JWT_SECRET=neighbornet_super_secret_key_2025_change_this_in_production_abc123xyz
+JWT_EXPIRY=7d
+```
+
+**IMPORTANT THINGS TO CHANGE:**
+
+1. **DB_PASSWORD** - Put YOUR MySQL root password here (the one you set when installing MySQL)
+
+2. **PORT** - If port 5050 is already being used on your machine:
+   - Change `PORT=5050` to something else like `PORT=5001` or `PORT=3001`
+   - Remember this port number - you'll need it for API calls!
+
+3. **FRONTEND_URL** - When you start the frontend, it might run on a different port. Update this to match (like `http://localhost:3001` or whatever port your React Native app uses)
+
+### Step 4: Start MySQL
+
+Make sure MySQL is running:
+
+**Mac:**
+```
+mysql.server start
+```
+or if using Homebrew:
+```
+brew services start mysql
+```
+
+**Windows:**
+- MySQL should start automatically
+- Or search for "Services" → find "MySQL80" → click "Start"
+
+**Linux:**
+```
+sudo systemctl start mysql
+```
+
+Test your MySQL connection:
+```
+mysql -u root -p
+```
+Enter your password when prompted. If you see "mysql>" you're good! Type "exit;" to quit
+
+### Step 5: Setup the Database
+
+Run this command to create the database and tables:
+```
+npm run setup-db
+```
+
+You should see:
+```
+✨ Database Setup Complete!
+Database: neighbornet
+Tables: 15
+Test Accounts: 2 (1 moderator, 1 user)
+```
+
+If you see errors about "Access denied", your MySQL password in `.env` is wrong.
+
+### Step 6: Start the Server
+```
+npm run dev
+```
+
+You should see:
+```
+✓ Database connected successfully
+NeighborNet Backend running on port 5050
+Environment: development
+```
+
+Leave this terminal window open - the server needs to keep running.
+
+## Testing It Works
+
+### Quick Health Check
+
+Open your browser and go to:
+```
+http://localhost:5050/health
+```
+
+(Change 5050 to whatever port you used)
+
+You should see:
+```
+{
+  "status": "ok",
+  "timestamp": "..."
+}
+```
+
+### Test Login in Postman
+
+1. Open Postman
+2. Create a new request:
+   - Method: **POST**
+   - URL: `http://localhost:5050/api/auth/login`
+   - Headers: `Content-Type: application/json`
+   - Body (raw JSON):
+```
+   {
+     "email": "user@neighbornet.com",
+     "password": "User123!"
+   }
+```
+3. Click Send
+
+You should get a response with a token. Copy that token - you'll need it for other requests.
+
+### Test Getting the Feed
+
+1. New request in Postman:
+   - Method: **GET**
+   - URL: `http://localhost:5050/api/feed`
+   - Headers:
+     - `Authorization: Bearer YOUR_TOKEN_HERE` (paste the token from login)
+2. Click Send
+
+Should return an empty feed (since there are no posts yet).
+
+## Common Issues
+
+### "Port already in use"
+
+**Solution:** Change the port in `.env` to something else:
+```
+PORT=5001
+```
+
+Then restart the server.
+
+### "Cannot connect to MySQL"
+
+**Solution 1:** Make sure MySQL is running
+```
+mysql.server status
+```
+
+**Solution 2:** Check your password in `.env` matches your MySQL root password
+
+**Solution 3:** Try connecting manually:
+```
+mysql -u root -p
+```
+If this fails, your MySQL isn't set up correctly.
+
+### "Table doesn't exist"
+
+**Solution:** Run the database setup again:
+```
+npm run setup-db
+```
+
+### "Module not found"
+
+**Solution:** Delete and reinstall dependencies:
+```
+rm -rf node_modules package-lock.json
+npm install
+```
+
+## Connecting Your Frontend
+
+When you start building the frontend, you'll need to point it to this backend.
+
+**The base URL for all API calls is:**
+```
+http://localhost:5050/api
+```
+
+If you changed the port, use that instead (like `http://localhost:5001/api`).
+
+**Important:** If you're testing on a real phone (not simulator):
+1. Find your computer's IP address:
+   - Mac/Linux: `ifconfig | grep "inet "`
+   - Windows: `ipconfig`
+2. Use that instead of localhost:
+```
+   http://192.168.1.100:5050/api
+```
+   (Replace with YOUR IP address)
+
+## Available Endpoints
+
+Full list of endpoints you can use:
+
+### Auth
+- `POST /api/auth/register` - Create new user
+- `POST /api/auth/login` - Login user
+
+### Users
+- `GET /api/users/profile` - Get your profile (needs auth)
+- `PUT /api/users/profile` - Update your profile (needs auth)
+
+### Posts
+- `POST /api/posts` - Create a post (needs auth)
+- `GET /api/posts/:postId` - Get specific post (needs auth)
+- `GET /api/posts/tags/all` - Get all available tags (needs auth)
+
+### Feed
+- `GET /api/feed` - Get personalized feed (needs auth)
+- `GET /api/feed?page=1&limit=20&radius=5000` - Feed with filters
+- `GET /api/feed/priority` - Get urgent/high priority posts (needs auth)
+- `GET /api/feed/search?query=restaurant` - Search posts (needs auth)
+
+All endpoints that say "needs auth" require this header:
+```
+Authorization: Bearer YOUR_TOKEN_FROM_LOGIN
+```
+
+## Test Accounts
+
+The database comes with 2 test accounts:
+
+**Regular User:**
+- Email: `user@neighbornet.com`
+- Password: `User123!`
+
+**Moderator:**
+- Email: `admin@neighbornet.com`
+- Password: `Admin123!`
+
+## Stopping the Server
+
+Press `Ctrl + C` in the terminal where the server is running.
+
+To start it again:
+```
+npm run dev
+```
+
+## Need Help?
+
+Check these first:
+1. Is MySQL running?
+2. Did you run `npm install`?
+3. Did you run `npm run setup-db`?
+4. Is the port in `.env` available?
+5. Is your MySQL password correct in `.env`?
+
+If you're still stuck, message the team with:
+- The exact error message
+- What command you ran
+- Screenshot of your terminal
+
+## Project Structure
+```
+neighbornet-backend/
+├── config/
+│   └── database.js          # MySQL connection
+├── middleware/
+│   ├── auth.middleware.js   # JWT authentication
+│   └── error.middleware.js  # Error handling
+├── routes/
+│   ├── auth.routes.js       # Login/register endpoints
+│   ├── user.routes.js       # Profile endpoints
+│   ├── post.routes.js       # Post creation endpoints
+│   └── feed.routes.js       # Feed endpoints
+├── database/
+│   └── schema.sql           # Database structure
+├── scripts/
+│   └── setup-database.js    # DB setup script
+├── .env                     # Your configuration (don't commit!)
+├── server.js                # Main entry point
+└── package.json             # Dependencies
