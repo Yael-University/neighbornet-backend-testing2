@@ -41,28 +41,35 @@ router.get('/:event_id', asyncHandler(async (req, res) => {
 // CREATE a new event
 // Requires logged-in user
 // ------------------------------
+// ------------------------------
+// CREATE a new event
+// Requires logged-in user
+// ------------------------------
 router.post('/', asyncHandler(async (req, res) => {
-    const user_id = req.user?.user_id;  // From JWT middleware
+    const user_id = req.user?.user_id;
     if (!user_id) return res.status(401).json({ error: "Unauthorized" });
 
-    const {
-        post_id,
-        title,
-        description,
-        event_date,
-        location,
-        location_lat,
-        location_lng,
-        max_attendees
-    } = req.body;
-
-    if (!post_id || !title || !event_date)
+    const { title, description, event_date, location, location_lat, location_lng, max_attendees } = req.body;
+    if (!title || !event_date)
         return res.status(400).json({ error: "Missing required fields" });
 
+    // Create post
+    const result = await query(
+        `INSERT INTO Posts (user_id, content, post_type)
+         VALUES (?, ?, ?)`,
+        [
+            user_id,
+            `Event: ${title}${description ? '\n' + description : ''}`,
+            'event'
+        ]
+    );
+    const post_id = result.insertId;
+
+    // Create event
     await query(
-        `INSERT INTO Events 
-        (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO Events
+         (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             post_id,
             title,
@@ -77,12 +84,17 @@ router.post('/', asyncHandler(async (req, res) => {
     );
 
     const [newEvent] = await query(
-        `SELECT * FROM Events WHERE post_id = ?`,
+        `SELECT e.*, u.name AS organizer_name
+         FROM Events e
+                  JOIN Users u ON e.organizer_id = u.user_id
+         WHERE e.post_id = ?`,
         [post_id]
     );
 
     res.json({ success: true, event: newEvent });
 }));
+
+
 
 // ------------------------------
 // UPDATE an event

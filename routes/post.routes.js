@@ -37,120 +37,48 @@ const sanitizeInput = (input) => {
 };
 
 router.post('/', asyncHandler(async (req, res) => {
-  const {
-    content,
-    post_type = 'general',
-    priority = 'normal',
-    media_urls,
-    location_lat,
-    location_lng,
-    visibility_radius = 5000,
-    tags = []
-  } = req.body;
+  const user_id = req.user?.user_id;  // From JWT middleware
+  if (!user_id) return res.status(401).json({ error: "Unauthorized" });
 
-  // Validate content
-  const contentValidation = validatePostContent(content);
-  if (!contentValidation.valid) {
-    return res.status(400).json({ error: contentValidation.message });
-  }
+  const { title, description, event_date, location, location_lat, location_lng, max_attendees } = req.body;
 
-  // Validate post type
-  const typeValidation = validatePostType(post_type);
-  if (!typeValidation.valid) {
-    return res.status(400).json({ error: typeValidation.message });
-  }
+  if (!title || !event_date)
+    return res.status(400).json({ error: "Missing required fields" });
 
-  // Validate priority
-  const priorityValidation = validatePriority(priority);
-  if (!priorityValidation.valid) {
-    return res.status(400).json({ error: priorityValidation.message });
-  }
-
-  // Use transaction for post creation with tags
-  const result = await transaction(async (connection) => {
-    // Insert post
-    const [postResult] = await connection.execute(
-      `INSERT INTO Posts (
-        user_id, content, post_type, priority, media_urls,
-        location_lat, location_lng, visibility_radius
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        req.user.user_id,
-        sanitizeInput(content),
-        post_type,
-        priority,
-        media_urls ? JSON.stringify(media_urls) : null,
-        location_lat || null,
-        location_lng || null,
-        visibility_radius
-      ]
-    );
-
-    const postId = postResult.insertId;
-
-    // Add tags if provided
-    if (tags && tags.length > 0) {
-      for (const tagId of tags) {
-        await connection.execute(
-          'INSERT INTO PostTags (post_id, tag_id) VALUES (?, ?)',
-          [postId, tagId]
-        );
-      }
-    }
-
-    // If it's an incident, create incident report
-    if (post_type === 'incident') {
-      const { incident_type, severity = 'medium', location_description } = req.body;
-      
-      if (!incident_type) {
-        throw new Error('Incident type is required for incident posts');
-      }
-
-      await connection.execute(
-        `INSERT INTO IncidentReports (
-          post_id, incident_type, severity, location_description
-        ) VALUES (?, ?, ?, ?)`,
-        [postId, incident_type, severity, location_description || null]
-      );
-    }
-
-    // Get the created post with user info
-    const [posts] = await connection.execute(
-      `SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
-       u.verification_status as author_verification
-       FROM Posts p
-       JOIN Users u ON p.user_id = u.user_id
-       WHERE p.post_id = ?`,
-      [postId]
-    );
-
-    return posts[0];
-  });
-
-  // Award badge if applicable (first post)
-  const postCount = await query(
-    'SELECT COUNT(*) as count FROM Posts WHERE user_id = ?',
-    [req.user.user_id]
+  // 1. Create the post
+  const [newPost] = await query(
+      `INSERT INTO Posts (title, content, author_id)
+         VALUES (?, ?, ?)`,
+      [`Event: ${title}`, description ?? '', user_id]
   );
 
-  if (postCount[0].count === 1) {
-    const firstPostBadge = await query(
-      "SELECT badge_id FROM Badges WHERE name = 'First Post'"
-    );
-    
-    if (firstPostBadge.length > 0) {
-      await query(
-        'INSERT IGNORE INTO UserBadges (user_id, badge_id) VALUES (?, ?)',
-        [req.user.user_id, firstPostBadge[0].badge_id]
-      );
-    }
-  }
+  // 2. Get the inserted post_id
+  const post_id = newPost.insertId;
 
-  res.status(201).json({
-    success: true,
-    message: 'Post created successfully',
-    post: result
-  });
+  // 3. Create the event using the new post_id
+  await query(
+      `INSERT INTO Events 
+         (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        post_id,
+        title,
+        description ?? null,
+        event_date,
+        location ?? null,
+        location_lat ?? null,
+        location_lng ?? null,
+        max_attendees ?? null,
+        user_id
+      ]
+  );
+
+  const [newEvent] = await query(
+      `SELECT * FROM Events WHERE post_id = ?`,
+      [post_id]
+  );
+
+  res.json({ success: true, event: newEvent });
 }));
 
 router.get('/:postId', asyncHandler(async (req, res) => {
