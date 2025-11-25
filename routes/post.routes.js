@@ -37,49 +37,43 @@ const sanitizeInput = (input) => {
 };
 
 router.post('/', asyncHandler(async (req, res) => {
-  const user_id = req.user?.user_id;  // From JWT middleware
-  if (!user_id) return res.status(401).json({ error: "Unauthorized" });
+    const user_id = req.user?.user_id;  // From JWT middleware
+    if (!user_id) return res.status(401).json({ error: "Unauthorized" });
 
-  const { title, description, event_date, location, location_lat, location_lng, max_attendees } = req.body;
+    const { content, post_type, priority } = req.body;
 
-  if (!title || !event_date)
-    return res.status(400).json({ error: "Missing required fields" });
+    // Validate
+    const contentValidation = validatePostContent(content);
+    if (!contentValidation.valid) return res.status(400).json({ error: contentValidation.message });
 
-  // 1. Create the post
-  const [newPost] = await query(
-      `INSERT INTO Posts (title, content, author_id)
-         VALUES (?, ?, ?)`,
-      [`Event: ${title}`, description ?? '', user_id]
-  );
+    const typeValidation = validatePostType(post_type);
+    if (!typeValidation.valid) return res.status(400).json({ error: typeValidation.message });
 
-  // 2. Get the inserted post_id
-  const post_id = newPost.insertId;
+    const priorityValidation = validatePriority(priority);
+    if (!priorityValidation.valid) return res.status(400).json({ error: priorityValidation.message });
 
-  // 3. Create the event using the new post_id
-  await query(
-      `INSERT INTO Events 
-         (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        post_id,
-        title,
-        description ?? null,
-        event_date,
-        location ?? null,
-        location_lat ?? null,
-        location_lng ?? null,
-        max_attendees ?? null,
-        user_id
-      ]
-  );
+    // Insert post
+    const newPostResult = await query(
+        `INSERT INTO Posts (content, post_type, user_id, priority)
+             VALUES (?, ?, ?, ?)`,
+        [content, post_type, user_id, priority ?? 'normal']
+    );
 
-  const [newEvent] = await query(
-      `SELECT * FROM Events WHERE post_id = ?`,
-      [post_id]
-  );
+    const post_id = newPostResult.insertId;
 
-  res.json({ success: true, event: newEvent });
+
+    // Fetch the newly created post with user info
+    const [post] = await query(
+        `SELECT p.*, u.name as author_name, u.profile_image_url as author_image, u.verification_status as author_verification
+     FROM Posts p
+     JOIN Users u ON p.user_id = u.user_id
+     WHERE p.post_id = ?`,
+        [post_id]
+    );
+
+    res.json({ success: true, post });
 }));
+
 
 router.get('/:postId', asyncHandler(async (req, res) => {
   const { postId } = req.params;
