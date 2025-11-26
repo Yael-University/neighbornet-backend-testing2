@@ -9,7 +9,6 @@ const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
 const postRoutes = require('./routes/post.routes');
 const feedRoutes = require('./routes/feed.routes');
-const eventsRoutes = require('./routes/events.routes');
 
 const { errorHandler } = require('./middleware/error.middleware');
 const { authenticateToken } = require('./middleware/auth.middleware');
@@ -32,7 +31,6 @@ console.log({
   userRoutes: typeof userRoutes,
   postRoutes: typeof postRoutes,
   feedRoutes: typeof feedRoutes,
-  eventsRoutes: typeof eventsRoutes,
   authenticateToken: typeof authenticateToken,
   errorHandler: typeof errorHandler,
 });
@@ -51,7 +49,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/posts', authenticateToken, postRoutes);
 app.use('/api/feed', authenticateToken, feedRoutes);
-app.use('/api/events', authenticateToken, eventsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

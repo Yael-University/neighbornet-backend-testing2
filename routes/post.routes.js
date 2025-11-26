@@ -37,43 +37,121 @@ const sanitizeInput = (input) => {
 };
 
 router.post('/', asyncHandler(async (req, res) => {
-    const user_id = req.user?.user_id;  // From JWT middleware
-    if (!user_id) return res.status(401).json({ error: "Unauthorized" });
+  const {
+    content,
+    post_type = 'general',
+    priority = 'normal',
+    media_urls,
+    location_lat,
+    location_lng,
+    visibility_radius = 5000,
+    tags = []
+  } = req.body;
 
-    const { content, post_type, priority } = req.body;
+  // Validate content
+  const contentValidation = validatePostContent(content);
+  if (!contentValidation.valid) {
+    return res.status(400).json({ error: contentValidation.message });
+  }
 
-    // Validate
-    const contentValidation = validatePostContent(content);
-    if (!contentValidation.valid) return res.status(400).json({ error: contentValidation.message });
+  // Validate post type
+  const typeValidation = validatePostType(post_type);
+  if (!typeValidation.valid) {
+    return res.status(400).json({ error: typeValidation.message });
+  }
 
-    const typeValidation = validatePostType(post_type);
-    if (!typeValidation.valid) return res.status(400).json({ error: typeValidation.message });
+  // Validate priority
+  const priorityValidation = validatePriority(priority);
+  if (!priorityValidation.valid) {
+    return res.status(400).json({ error: priorityValidation.message });
+  }
 
-    const priorityValidation = validatePriority(priority);
-    if (!priorityValidation.valid) return res.status(400).json({ error: priorityValidation.message });
-
+  // Use transaction for post creation with tags
+  const result = await transaction(async (connection) => {
     // Insert post
-    const newPostResult = await query(
-        `INSERT INTO Posts (content, post_type, user_id, priority)
-             VALUES (?, ?, ?, ?)`,
-        [content, post_type, user_id, priority ?? 'normal']
+    const [postResult] = await connection.execute(
+      `INSERT INTO Posts (
+        user_id, content, post_type, priority, media_urls,
+        location_lat, location_lng, visibility_radius
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.user.user_id,
+        sanitizeInput(content),
+        post_type,
+        priority,
+        media_urls ? JSON.stringify(media_urls) : null,
+        location_lat || null,
+        location_lng || null,
+        visibility_radius
+      ]
     );
 
-    const post_id = newPostResult.insertId;
+    const postId = postResult.insertId;
 
+    // Add tags if provided
+    if (tags && tags.length > 0) {
+      for (const tagId of tags) {
+        await connection.execute(
+          'INSERT INTO PostTags (post_id, tag_id) VALUES (?, ?)',
+          [postId, tagId]
+        );
+      }
+    }
 
-    // Fetch the newly created post with user info
-    const [post] = await query(
-        `SELECT p.*, u.name as author_name, u.profile_image_url as author_image, u.verification_status as author_verification
-     FROM Posts p
-     JOIN Users u ON p.user_id = u.user_id
-     WHERE p.post_id = ?`,
-        [post_id]
+    // If it's an incident, create incident report
+    if (post_type === 'incident') {
+      const { incident_type, severity = 'medium', location_description } = req.body;
+      
+      if (!incident_type) {
+        throw new Error('Incident type is required for incident posts');
+      }
+
+      await connection.execute(
+        `INSERT INTO IncidentReports (
+          post_id, incident_type, severity, location_description
+        ) VALUES (?, ?, ?, ?)`,
+        [postId, incident_type, severity, location_description || null]
+      );
+    }
+
+    // Get the created post with user info
+    const [posts] = await connection.execute(
+      `SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
+       u.verification_status as author_verification
+       FROM Posts p
+       JOIN Users u ON p.user_id = u.user_id
+       WHERE p.post_id = ?`,
+      [postId]
     );
 
-    res.json({ success: true, post });
+    return posts[0];
+  });
+
+  // Award badge if applicable (first post)
+  const postCount = await query(
+    'SELECT COUNT(*) as count FROM Posts WHERE user_id = ?',
+    [req.user.user_id]
+  );
+
+  if (postCount[0].count === 1) {
+    const firstPostBadge = await query(
+      "SELECT badge_id FROM Badges WHERE name = 'First Post'"
+    );
+    
+    if (firstPostBadge.length > 0) {
+      await query(
+        'INSERT IGNORE INTO UserBadges (user_id, badge_id) VALUES (?, ?)',
+        [req.user.user_id, firstPostBadge[0].badge_id]
+      );
+    }
+  }
+
+  res.status(201).json({
+    success: true,
+    message: 'Post created successfully',
+    post: result
+  });
 }));
-
 
 router.get('/:postId', asyncHandler(async (req, res) => {
   const { postId } = req.params;
