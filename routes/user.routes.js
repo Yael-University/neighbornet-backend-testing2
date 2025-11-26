@@ -35,7 +35,11 @@ router.put('/profile', asyncHandler(async (req, res) => {
 
 router.get('/public/:userId', asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const users = await query(`SELECT user_id, display_name, username,name,profile_image_url,bio,age,occupation,interests,skills,verification_status,created_atFROM UsersWHERE user_id = ?`,[userId]);
+    const users = await query(`SELECT user_id, display_name, username, name, profile_image_url, bio, age,
+                                      occupation, interests, skills, verification_status, created_at
+                               FROM Users
+                               WHERE user_id = ?
+    `,[userId]);
     if (users.length === 0) {return res.status(404).json({ error: 'User not found' });}
     res.json({success: true, user: users[0]});
 }));

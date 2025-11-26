@@ -211,4 +211,77 @@ router.get('/tags/all', asyncHandler(async (req, res) => {
   });
 }));
 
+// Add comment to a post
+router.post("/:post_id/comments", asyncHandler(async (req, res) => {
+  const { post_id } = req.params;
+  const { content } = req.body;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+  if (!content || content.trim().length === 0) return res.status(400).json({ error: "Content cannot be empty" });
+
+  const userId = req.user.user_id;
+
+  const result = await query("INSERT INTO Comments (post_id, user_id, content) VALUES (?, ?, ?)", [post_id, userId, content.trim()]);
+
+  await query("UPDATE Posts SET comments_count = comments_count + 1 WHERE post_id = ?", [post_id]);
+
+  res.json({ success: true, message: "Comment added", comment_id: result.insertId });
+}));
+
+// Get all comments for a post
+router.get("/:post_id/comments", asyncHandler(async (req, res) => {
+  const { post_id } = req.params;
+
+  // Optional: check if post exists first
+  const post = await query("SELECT post_id FROM Posts WHERE post_id = ?", [post_id]);
+  if (post.length === 0) return res.status(404).json({ success: false, error: "Post not found" });
+
+  // Fetch comments with user info
+  const comments = await query(
+      `SELECT c.comment_id, c.content, c.created_at, u.user_id, u.name as author_name, u.profile_image_url as author_image
+         FROM Comments c
+         JOIN Users u ON c.user_id = u.user_id
+         WHERE c.post_id = ?
+         ORDER BY c.created_at ASC`,
+      [post_id]
+  );
+
+  res.json({ success: true, post_id, comments });
+}));
+
+
+// Like a post
+router.post("/:post_id/like", asyncHandler(async (req, res) => {
+  const { post_id } = req.params;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  const userId = req.user.user_id;
+
+  try {
+    await query("INSERT INTO Likes (user_id, post_id) VALUES (?, ?)", [userId, post_id]);
+    await query("UPDATE Posts SET likes_count = likes_count + 1 WHERE post_id = ?", [post_id]);
+    res.json({ success: true, message: "Post liked!" });
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "User already liked this post" });
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+}));
+
+// Unlike a post
+router.delete("/:post_id/like", asyncHandler(async (req, res) => {
+  const { post_id } = req.params;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  const userId = req.user.user_id;
+
+  const result = await query("DELETE FROM Likes WHERE user_id = ? AND post_id = ?", [userId, post_id]);
+
+  if (result.affectedRows > 0) await query("UPDATE Posts SET likes_count = likes_count - 1 WHERE post_id = ?", [post_id]);
+
+  res.json({ success: true, message: "Unliked post" });
+}));
+
 module.exports = router;
