@@ -56,6 +56,8 @@ router.get('/', asyncHandler(async (req, res) => {
       p.created_at,
       p.updated_at,
       u.user_id as author_id,
+      u.username as username,
+      u.display_name as display_name,
       u.name as author_name,
       u.profile_image_url as author_image,
       u.verification_status as author_verification,
@@ -143,6 +145,8 @@ router.get('/', asyncHandler(async (req, res) => {
             updated_at: post.updated_at,
             author_id: post.author_id,
             author_name: post.author_name,
+            username: post.username,
+            display_name: post.display_name,
             author_image: post.author_image,
             author_verification: post.author_verification,
             author_street: post.author_street,
@@ -187,6 +191,8 @@ router.get('/priority', asyncHandler(async (req, res) => {
       p.*,
       u.user_id as author_id,
       u.name as author_name,
+      u.display_name as display_name,
+      u.username as username,
       u.profile_image_url as author_image,
       u.verification_status as author_verification,
       u.latitude as author_latitude,
@@ -266,6 +272,8 @@ router.get('/search', asyncHandler(async (req, res) => {
         p.*,
         u.user_id as author_id,
         u.name as author_name,
+        u.username as username,
+        u.display_name as display_name,
         u.profile_image_url as author_image,
         u.verification_status as author_verification
       FROM Posts p
@@ -280,6 +288,8 @@ router.get('/search', asyncHandler(async (req, res) => {
         p.*,
         u.user_id as author_id,
         u.name as author_name,
+        u.username as username,
+        u.display_name as display_name,
         u.profile_image_url as author_image,
         u.verification_status as author_verification
       FROM Posts p
@@ -299,6 +309,8 @@ router.get('/search', asyncHandler(async (req, res) => {
         p.*,
         u.user_id as author_id,
         u.name as author_name,
+        u.username as username,
+        u.display_name as display_name,
         u.profile_image_url as author_image,
         u.verification_status as author_verification
       FROM Posts p

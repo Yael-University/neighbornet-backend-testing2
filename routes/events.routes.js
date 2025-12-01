@@ -178,4 +178,52 @@ router.delete('/:event_id', asyncHandler(async (req, res) => {
     res.json({ success: true });
 }));
 
+// ------------------------------
+// RSVP to an event
+// ------------------------------
+router.post('/:event_id/rsvp', asyncHandler(async (req, res) => {
+    const user_id = req.user?.user_id;
+    const { event_id } = req.params;
+    const { status } = req.body; // "going", "interested", "not_going"
+
+    if (!user_id) return res.status(401).json({ error: "Unauthorized" });
+    if (!['going', 'interested', 'not_going'].includes(status))
+        return res.status(400).json({ error: "Invalid RSVP status" });
+
+    // Insert or update RSVP
+    await query(
+        `INSERT INTO RSVPs (event_id, user_id, status) 
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = ?`,
+        [event_id, user_id, status, status]
+    );
+
+    // Optionally update current_attendees count
+    const [{ count }] = await query(
+        `SELECT COUNT(*) AS count FROM RSVPs WHERE event_id = ? AND status = 'going'`,
+        [event_id]
+    );
+
+    await query(`UPDATE Events SET current_attendees = ? WHERE event_id = ?`, [count, event_id]);
+
+    res.json({ success: true, status, current_attendees: count });
+}));
+
+// ------------------------------
+// Get user's RSVP for an event
+// ------------------------------
+router.get('/:event_id/rsvp', asyncHandler(async (req, res) => {
+    const user_id = req.user?.user_id;
+    const { event_id } = req.params;
+
+    if (!user_id) return res.status(401).json({ error: "Unauthorized" });
+
+    const [rsvp] = await query(
+        `SELECT * FROM RSVPs WHERE event_id = ? AND user_id = ?`,
+        [event_id, user_id]
+    );
+
+    res.json({ success: true, rsvp: rsvp || null });
+}));
+
 module.exports = router;

@@ -157,7 +157,7 @@ router.get('/:postId', asyncHandler(async (req, res) => {
   const { postId } = req.params;
 
   const posts = await query(
-    `SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
+    `SELECT p.*, u.name as author_name, u.username as username, u.profile_image_url as author_image,
      u.verification_status as author_verification, u.user_id as author_id
      FROM Posts p
      JOIN Users u ON p.user_id = u.user_id

@@ -11,6 +11,7 @@ const postRoutes = require('./routes/post.routes');
 const feedRoutes = require('./routes/feed.routes');
 const eventRoutes = require('./routes/events.routes');
 
+
 const { errorHandler } = require('./middleware/error.middleware');
 const { authenticateToken } = require('./middleware/auth.middleware');
 
