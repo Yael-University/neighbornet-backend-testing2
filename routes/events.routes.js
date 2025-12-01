@@ -178,4 +178,30 @@ router.delete('/:event_id', asyncHandler(async (req, res) => {
     res.json({ success: true });
 }));
 
+// ------------------------------
+// Add comment to an event (posts comments on associated post)
+// POST /api/events/:event_id/comment
+// ------------------------------
+router.post('/:event_id/comment', asyncHandler(async (req, res) => {
+    const { event_id } = req.params;
+    const { content } = req.body;
+
+    if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+    if (!content || content.trim().length === 0) return res.status(400).json({ error: 'Content cannot be empty' });
+
+    // Find event and its post_id
+    const events = await query('SELECT post_id FROM Events WHERE event_id = ?', [event_id]);
+    if (!events || events.length === 0) return res.status(404).json({ success: false, error: 'Event not found' });
+
+    const post_id = events[0].post_id;
+
+    // Insert into Comments table linked to the post
+    const result = await query('INSERT INTO Comments (post_id, user_id, content) VALUES (?, ?, ?)', [post_id, req.user.user_id, content.trim()]);
+
+    // Increment posts comments count if you track it
+    await query('UPDATE Posts SET comments_count = COALESCE(comments_count, 0) + 1 WHERE post_id = ?', [post_id]);
+
+    res.json({ success: true, message: 'Comment added to event', comment_id: result.insertId });
+}));
+
 module.exports = router;
