@@ -66,6 +66,18 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: priorityValidation.message });
   }
 
+  // Validate tag ids - ensure they're integers and exist in the DB
+  let tagIds = Array.isArray(tags) ? tags.map(t => Number(t)).filter(t => Number.isInteger(t)) : [];
+  if (tagIds.length > 0) {
+    const placeholders = tagIds.map(() => '?').join(',');
+    const foundTags = await query(`SELECT tag_id FROM Tags WHERE tag_id IN (${placeholders})`, tagIds);
+    const foundIds = new Set(foundTags.map(t => t.tag_id));
+    const missing = tagIds.filter(id => !foundIds.has(id));
+    if (missing.length > 0) {
+      return res.status(400).json({ error: 'Some tags are invalid', missing });
+    }
+  }
+
   // Use transaction for post creation with tags
   const result = await transaction(async (connection) => {
     // Insert post
@@ -88,15 +100,15 @@ router.post('/', asyncHandler(async (req, res) => {
 
     const postId = postResult.insertId;
 
-    // Add tags if provided
-    if (tags && tags.length > 0) {
-      for (const tagId of tags) {
-        await connection.execute(
-          'INSERT INTO PostTags (post_id, tag_id) VALUES (?, ?)',
-          [postId, tagId]
-        );
+      // Add tags if provided
+      if (tagIds && tagIds.length > 0) {
+        for (const tagId of tagIds) {
+          await connection.execute(
+            'INSERT IGNORE INTO PostTags (post_id, tag_id) VALUES (?, ?)',
+            [postId, tagId]
+          );
+        }
       }
-    }
 
     // If it's an incident, create incident report
     if (post_type === 'incident') {
@@ -124,7 +136,19 @@ router.post('/', asyncHandler(async (req, res) => {
       [postId]
     );
 
-    return posts[0];
+    // Attach tags to returned post
+    const [postTags] = await connection.execute(
+      `SELECT t.tag_id, t.name, t.category, t.color
+       FROM PostTags pt
+       JOIN Tags t ON pt.tag_id = t.tag_id
+       WHERE pt.post_id = ?`,
+      [postId]
+    );
+
+    const post = posts[0];
+    post.tags = postTags;
+
+    return post;
   });
 
   // Award badge if applicable (first post)
@@ -150,6 +174,18 @@ router.post('/', asyncHandler(async (req, res) => {
     success: true,
     message: 'Post created successfully',
     post: result
+  });
+}));
+
+// Tags route must come before the parameterized `/:postId` route so it isn't shadowed
+router.get('/tags/all', asyncHandler(async (req, res) => {
+  const tags = await query(
+    'SELECT * FROM Tags ORDER BY category, name'
+  );
+
+  res.json({
+    success: true,
+    tags: tags
   });
 }));
 
