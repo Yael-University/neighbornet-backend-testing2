@@ -16,6 +16,7 @@ const groupRoutes = require('./routes/groups.routes');
 const notificationRoutes = require('./routes/notifications.routes');
 const badgeRoutes = require('./routes/badges.routes');
 const contactRoutes = require('./routes/contacts.routes');
+const followRoutes = require('./routes/follows.routes');
 
 const { errorHandler } = require('./middleware/error.middleware');
 const { authenticateToken } = require('./middleware/auth.middleware');
@@ -84,6 +85,7 @@ app.use('/api/groups', authenticateToken, groupRoutes);
 app.use('/api/notifications', authenticateToken, notificationRoutes);
 app.use('/api/badges', authenticateToken, badgeRoutes);
 app.use('/api/contacts', authenticateToken, contactRoutes);
+app.use('/api/follows', authenticateToken, followRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

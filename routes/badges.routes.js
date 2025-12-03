@@ -39,7 +39,7 @@ router.get('/user/:userId', asyncHandler(async (req, res) => {
 // Get authenticated user's badges
 router.get('/my-badges', asyncHandler(async (req, res) => {
   if (!req.user?.user_id) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
 
   const userBadges = await query(
@@ -65,7 +65,7 @@ router.patch('/:badgeId/display', asyncHandler(async (req, res) => {
   const { is_displayed } = req.body;
 
   if (!req.user?.user_id) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
 
   // Verify user has this badge
@@ -75,7 +75,7 @@ router.patch('/:badgeId/display', asyncHandler(async (req, res) => {
   );
 
   if (userBadges.length === 0) {
-    return res.status(404).json({ error: 'Badge not found or not earned' });
+    return res.status(404).json({ success: false, message: 'Badge not found or not earned' });
   }
 
   await query(
@@ -92,7 +92,7 @@ router.patch('/:badgeId/display', asyncHandler(async (req, res) => {
 // Get badge progress for user (optional - for gamification)
 router.get('/progress', asyncHandler(async (req, res) => {
   if (!req.user?.user_id) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
 
   const userId = req.user.user_id;

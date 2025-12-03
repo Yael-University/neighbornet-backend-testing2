@@ -48,7 +48,7 @@ const upload = multer({
 /// get route
 router.get('/profile', asyncHandler(async (req, res) => {
     const users = await query('SELECT user_id, email, name, username, display_name, age, occupation, bio, address, street, verification_status, profile_visibility, is_moderator, profile_image_url, created_at FROM Users WHERE user_id = ?', [req.user.user_id]);
-    if (users.length === 0) return res.status(404).json({ error: 'User not found' });
+    if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
     res.json({ success: true, user: users[0] });
 }));
 
@@ -176,13 +176,13 @@ router.get('/public/:userId', asyncHandler(async (req, res) => {
                                FROM Users
                                WHERE user_id = ?
     `,[userId]);
-    if (users.length === 0) {return res.status(404).json({ error: 'User not found' });}
+    if (users.length === 0) {return res.status(404).json({ success: false, message: 'User not found' });}
     res.json({success: true, user: users[0]});
 }));
 
 // Request verification
 router.post('/verify/request', asyncHandler(async (req, res) => {
-  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  if (!req.user?.user_id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
   // Check current verification status
   const users = await query(
@@ -191,15 +191,15 @@ router.post('/verify/request', asyncHandler(async (req, res) => {
   );
 
   if (users.length === 0) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(404).json({ success: false, message: 'User not found' });
   }
 
   if (users[0].verification_status === 'verified') {
-    return res.status(400).json({ error: 'User is already verified' });
+    return res.status(400).json({ success: false, message: 'User is already verified' });
   }
 
   if (users[0].verification_status === 'pending') {
-    return res.status(400).json({ error: 'Verification request already pending' });
+    return res.status(400).json({ success: false, message: 'Verification request already pending' });
   }
 
   // Update verification status to pending
@@ -217,7 +217,7 @@ router.post('/verify/request', asyncHandler(async (req, res) => {
 
 // Admin/Moderator: Verify a user
 router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
-  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  if (!req.user?.user_id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
   // Check if requester is moderator
   const moderators = await query(
@@ -226,7 +226,7 @@ router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
   );
 
   if (moderators.length === 0 || !moderators[0].is_moderator) {
-    return res.status(403).json({ error: 'Forbidden - Admin/Moderator access required' });
+    return res.status(403).json({ success: false, message: 'Forbidden - Admin/Moderator access required' });
   }
 
   const { userId } = req.params;
@@ -238,7 +238,7 @@ router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
   );
 
   if (users.length === 0) {
-    return res.status(404).json({ error: 'User not found' });
+    return res.status(404).json({ success: false, message: 'User not found' });
   }
 
   // Update user's verification status to verified
@@ -262,10 +262,10 @@ router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
 
 // Upload profile image
 router.post('/profile/image', upload.single('profile_image'), asyncHandler(async (req, res) => {
-  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  if (!req.user?.user_id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
   if (!req.file) {
-    return res.status(400).json({ error: 'No image file provided' });
+    return res.status(400).json({ success: false, message: 'No image file provided' });
   }
 
   // Get the old profile image URL to delete it if it exists
