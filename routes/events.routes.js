@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { calculateDistance, validateCoordinates } = require('../utils/location');
+const { checkAndAwardBadges } = require('../utils/badges');
 
 // ------------------------------
 // GET events within radius (for maps)
@@ -291,6 +292,9 @@ router.post('/', asyncHandler(async (req, res) => {
         return res.status(500).json({ error: 'Failed to retrieve created event' });
     }
 
+    // Check and award badges for event creation
+    await checkAndAwardBadges(user_id);
+
     res.json({ success: true, event: newEvents[0] });
 }));
 
@@ -456,6 +460,159 @@ router.get('/:event_id/rsvp', asyncHandler(async (req, res) => {
 >>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
 =======
 >>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
+}));
+
+// ------------------------------
+// Get event attendees (signed up users)
+// ------------------------------
+router.get('/:eventId/attendees', asyncHandler(async (req, res) => {
+    const { eventId } = req.params;
+
+    // Check if event exists
+    const events = await query(
+        'SELECT event_id FROM Events WHERE event_id = ?',
+        [eventId]
+    );
+
+    if (events.length === 0) {
+        return res.status(404).json({ error: 'Event not found' });
+    }
+
+    // Get attendees with user info
+    const attendees = await query(
+        `SELECT u.user_id, u.name, u.username, u.profile_image_url
+         FROM EventSignups es
+         JOIN Users u ON es.user_id = u.user_id
+         WHERE es.event_id = ?
+         ORDER BY es.signed_up_at ASC`,
+        [eventId]
+    );
+
+    res.json({
+        success: true,
+        attendees
+    });
+}));
+
+// ------------------------------
+// Check if user is signed up for event
+// ------------------------------
+router.get('/:eventId/signup/status', asyncHandler(async (req, res) => {
+    const { eventId } = req.params;
+
+    if (!req.user?.user_id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const signups = await query(
+        'SELECT * FROM EventSignups WHERE event_id = ? AND user_id = ?',
+        [eventId, req.user.user_id]
+    );
+
+    res.json({
+        success: true,
+        isSignedUp: signups.length > 0
+    });
+}));
+
+// ------------------------------
+// Sign up for event
+// ------------------------------
+router.post('/:eventId/signup', asyncHandler(async (req, res) => {
+    const { eventId } = req.params;
+
+    if (!req.user?.user_id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userId = req.user.user_id;
+
+    // Check if event exists and get details
+    const events = await query(
+        'SELECT max_attendees, current_attendees FROM Events WHERE event_id = ?',
+        [eventId]
+    );
+
+    if (events.length === 0) {
+        return res.status(404).json({ error: 'Event not found' });
+    }
+
+    const event = events[0];
+
+    // Check if already signed up
+    const existingSignup = await query(
+        'SELECT * FROM EventSignups WHERE event_id = ? AND user_id = ?',
+        [eventId, userId]
+    );
+
+    if (existingSignup.length > 0) {
+        return res.status(409).json({ error: 'Already signed up for this event' });
+    }
+
+    // Check if event is at capacity
+    if (event.max_attendees && event.current_attendees >= event.max_attendees) {
+        return res.status(400).json({ error: 'Event is at full capacity' });
+    }
+
+    // Sign up user
+    await query(
+        'INSERT INTO EventSignups (event_id, user_id) VALUES (?, ?)',
+        [eventId, userId]
+    );
+
+    // Update current attendees count
+    await query(
+        'UPDATE Events SET current_attendees = current_attendees + 1 WHERE event_id = ?',
+        [eventId]
+    );
+
+    // Check and award badges for event attendance
+    await checkAndAwardBadges(userId);
+
+    res.json({
+        success: true,
+        message: 'Successfully signed up for event'
+    });
+}));
+
+// ------------------------------
+// Cancel event sign-up
+// ------------------------------
+router.delete('/:eventId/signup', asyncHandler(async (req, res) => {
+    const { eventId } = req.params;
+
+    if (!req.user?.user_id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userId = req.user.user_id;
+
+    // Check if signed up
+    const signups = await query(
+        'SELECT * FROM EventSignups WHERE event_id = ? AND user_id = ?',
+        [eventId, userId]
+    );
+
+    if (signups.length === 0) {
+        return res.status(404).json({ error: 'Not signed up for this event' });
+    }
+
+    // Delete sign-up
+    await query(
+        'DELETE FROM EventSignups WHERE event_id = ? AND user_id = ?',
+        [eventId, userId]
+    );
+
+    // Update current attendees count
+    await query(
+        'UPDATE Events SET current_attendees = GREATEST(current_attendees - 1, 0) WHERE event_id = ?',
+        [eventId]
+    );
+
+    res.json({
+        success: true,
+        message: 'Successfully cancelled sign-up'
+    });
 }));
 
 module.exports = router;

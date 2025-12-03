@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { checkAndAwardBadges } = require('../utils/badges');
 
 // Send trusted contact request
 router.post('/request', asyncHandler(async (req, res) => {
@@ -153,6 +154,10 @@ router.patch('/:contactId/accept', asyncHandler(async (req, res) => {
      VALUES (?, 'system', 'Contact Request Accepted', 'Your trusted contact request was accepted', ?, 'user')`,
     [contacts[0].user_id, req.user.user_id]
   );
+
+  // Check and award badges for both users
+  await checkAndAwardBadges(req.user.user_id);
+  await checkAndAwardBadges(contacts[0].user_id);
 
   res.json({
     success: true,

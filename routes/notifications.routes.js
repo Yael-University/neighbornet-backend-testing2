@@ -3,6 +3,43 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 
+// Create a new notification
+router.post('/', asyncHandler(async (req, res) => {
+  const { user_id, type, title, content, related_id, related_type, priority } = req.body;
+
+  // Validate required fields
+  if (!user_id || !type) {
+    return res.status(400).json({ error: 'user_id and type are required' });
+  }
+
+  // Validate type enum
+  const validTypes = ['alert', 'message', 'event', 'badge', 'verification', 'system'];
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: 'Invalid notification type' });
+  }
+
+  // Create notification
+  const result = await query(
+    `INSERT INTO Notifications (user_id, type, title, content, related_id, related_type, priority)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      user_id,
+      type,
+      title || 'New Notification',
+      content || null,
+      related_id || null,
+      related_type || null,
+      priority || 'normal'
+    ]
+  );
+
+  res.status(201).json({
+    success: true,
+    message: 'Notification created',
+    notification_id: result.insertId
+  });
+}));
+
 // Get all notifications for the authenticated user
 router.get('/', asyncHandler(async (req, res) => {
   const { limit = 50, unread_only = false } = req.query;

@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS GroupMemberships;
 DROP TABLE IF EXISTS UserGroups;
 DROP TABLE IF EXISTS Verifications;
 DROP TABLE IF EXISTS IncidentReports;
+DROP TABLE IF EXISTS EventSignups;
 DROP TABLE IF EXISTS RSVPs;
 DROP TABLE IF EXISTS Events;
 DROP TABLE IF EXISTS Comments;
@@ -59,6 +60,7 @@ post_type ENUM('incident', 'event', 'help', 'question', 'review', 'poll', 'annou
 priority ENUM('normal', 'high', 'urgent') DEFAULT 'normal',
 is_verified BOOLEAN DEFAULT FALSE,
 media_urls TEXT,
+post_image VARCHAR(500),
 location_lat DECIMAL(10, 8),
 location_lng DECIMAL(11, 8),
 visibility_radius INT DEFAULT 5000,
@@ -105,6 +107,18 @@ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (event_id) REFERENCES Events(event_id) ON DELETE CASCADE,
 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 UNIQUE KEY unique_rsvp (event_id, user_id),
+INDEX idx_event (event_id),
+INDEX idx_user (user_id)
+);
+
+CREATE TABLE EventSignups (
+signup_id INT PRIMARY KEY AUTO_INCREMENT,
+event_id INT NOT NULL,
+user_id INT NOT NULL,
+signed_up_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (event_id) REFERENCES Events(event_id) ON DELETE CASCADE,
+FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+UNIQUE KEY unique_signup (event_id, user_id),
 INDEX idx_event (event_id),
 INDEX idx_user (user_id)
 );
@@ -220,9 +234,12 @@ CREATE TABLE Badges (
 badge_id INT PRIMARY KEY AUTO_INCREMENT,
 name VARCHAR(100) NOT NULL,
 description TEXT,
+icon VARCHAR(10),
+category ENUM('participation', 'contribution', 'leadership', 'special') DEFAULT 'participation',
+points_value INT DEFAULT 0,
+criteria_type VARCHAR(50),
+criteria_value INT,
 tier ENUM('bronze', 'silver', 'gold', 'platinum') DEFAULT 'bronze',
-criteria TEXT,
-icon_url VARCHAR(500),
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -231,7 +248,7 @@ user_badge_id INT PRIMARY KEY AUTO_INCREMENT,
 user_id INT NOT NULL,
 badge_id INT NOT NULL,
 earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-is_displayed BOOLEAN DEFAULT FALSE,
+is_displayed BOOLEAN DEFAULT TRUE,
 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 FOREIGN KEY (badge_id) REFERENCES Badges(badge_id) ON DELETE CASCADE,
 UNIQUE KEY unique_user_badge (user_id, badge_id),
@@ -304,12 +321,14 @@ INSERT INTO Tags (name, category, color) VALUES
 ('Block Party', 'event', '#8BC34A'),
 ('Volunteering', 'help', '#00BCD4');
 
-INSERT INTO Badges (name, description, tier, criteria) VALUES
-('First Post', 'Created your first post', 'bronze', 'Make 1 post'),
-('Community Helper', 'Helped 5 neighbors', 'silver', 'Respond to 5 help requests'),
-('Safety Champion', 'Reported 10 incidents', 'gold', 'Report 10 verified incidents'),
-('Event Organizer', 'Organized 5 events', 'silver', 'Create 5 events with 10+ attendees'),
-('Trusted Neighbor', 'Added 10 trusted contacts', 'bronze', 'Build network of 10+ trusted contacts'),
-('Active Member', 'Posted 50 times', 'gold', 'Create 50 posts'),
-('Chat Leader', 'Sent 100 messages', 'silver', 'Send 100 group messages'),
-('Platinum Contributor', 'Top community member', 'platinum', 'Achieve all gold badges');
+INSERT INTO Badges (name, description, icon, category, points_value, criteria_type, criteria_value, tier) VALUES
+('First Post', 'Created your first post', '🎉', 'participation', 10, 'post_count', 1, 'bronze'),
+('Chatty', 'Made 10 posts', '💬', 'participation', 25, 'post_count', 10, 'bronze'),
+('Prolific', 'Made 50 posts', '📝', 'contribution', 100, 'post_count', 50, 'gold'),
+('First Comment', 'Left your first comment', '💭', 'participation', 5, 'comment_count', 1, 'bronze'),
+('Conversationalist', 'Made 25 comments', '🗨️', 'contribution', 50, 'comment_count', 25, 'silver'),
+('Popular', 'Received 50 likes', '⭐', 'special', 75, 'likes_received', 50, 'silver'),
+('Community Builder', 'Attended 5 events', '🏘️', 'contribution', 100, 'events_attended', 5, 'silver'),
+('Event Organizer', 'Created your first event', '📅', 'leadership', 50, 'events_created', 1, 'bronze'),
+('Safety Champion', 'Reported 10 incidents', '🛡️', 'leadership', 150, 'incidents_reported', 10, 'gold'),
+('Trusted Neighbor', 'Added 10 trusted contacts', '🤝', 'participation', 30, 'trusted_contacts', 10, 'bronze');

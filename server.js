@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
@@ -21,9 +22,21 @@ const { authenticateToken } = require('./middleware/auth.middleware');
 
 const app = express();
 
-app.use(helmet());
+// Configure helmet with relaxed CSP for images
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "blob:", "*"],
+      mediaSrc: ["'self'", "data:", "blob:", "*"],
+    },
+  },
+}));
+
+// CORS - Allow all origins for development
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: '*',
   credentials: true
 }));
 
@@ -42,14 +55,20 @@ console.log({
   errorHandler: typeof errorHandler,
 });
 
+// CRITICAL: Static file serving MUST come before routes
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Log static file requests for debugging
+app.use('/uploads', (req, res, next) => {
+  console.log('📁 Static file requested:', req.url);
+  next();
+});
+
 app.use('/api/', limiter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan('combined'));
-
-// Serve static files from uploads directory
-app.use('/uploads', express.static('uploads'));
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -72,10 +91,12 @@ app.use((req, res) => {
 
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
-  console.log(`NeighborNet Backend running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`\n✅ NeighborNet Backend running on http://localhost:${PORT}`);
+  console.log(`📁 Static files served from: ${path.join(__dirname, 'uploads')}`);
+  console.log(`🖼️  Test image URL: http://localhost:${PORT}/uploads/profiles/2_1764796118638.jpg`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}\n`);
 });
 
 module.exports = app;

@@ -15,15 +15,16 @@ router.get('/', asyncHandler(async (req, res) => {
   });
 }));
 
-// Get user's earned badges
+// Get user's earned badges (public - only displayed badges)
 router.get('/user/:userId', asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
   const userBadges = await query(
-    `SELECT ub.*, b.name, b.description, b.tier, b.criteria, b.icon_url
+    `SELECT ub.user_badge_id, ub.user_id, ub.badge_id, ub.earned_at, ub.is_displayed,
+            b.name, b.description, b.icon, b.category, b.points_value, b.tier
      FROM UserBadges ub
      JOIN Badges b ON ub.badge_id = b.badge_id
-     WHERE ub.user_id = ?
+     WHERE ub.user_id = ? AND ub.is_displayed = TRUE
      ORDER BY ub.earned_at DESC`,
     [userId]
   );
@@ -42,7 +43,8 @@ router.get('/my-badges', asyncHandler(async (req, res) => {
   }
 
   const userBadges = await query(
-    `SELECT ub.*, b.name, b.description, b.tier, b.criteria, b.icon_url
+    `SELECT ub.user_badge_id, ub.user_id, ub.badge_id, ub.earned_at, ub.is_displayed,
+            b.name, b.description, b.icon, b.category, b.points_value, b.tier
      FROM UserBadges ub
      JOIN Badges b ON ub.badge_id = b.badge_id
      WHERE ub.user_id = ?

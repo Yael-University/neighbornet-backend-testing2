@@ -47,7 +47,7 @@ const upload = multer({
 
 /// get route
 router.get('/profile', asyncHandler(async (req, res) => {
-    const users = await query('SELECT user_id, email, name, username, display_name, age, occupation, bio, address, street, verification_status, profile_visibility, is_moderator, created_at FROM Users WHERE user_id = ?', [req.user.user_id]);
+    const users = await query('SELECT user_id, email, name, username, display_name, age, occupation, bio, address, street, verification_status, profile_visibility, is_moderator, profile_image_url, created_at FROM Users WHERE user_id = ?', [req.user.user_id]);
     if (users.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ success: true, user: users[0] });
 }));
@@ -86,6 +86,86 @@ router.get('/public/:userId', asyncHandler(async (req, res) => {
     res.json({success: true, user: users[0]});
 }));
 
+// Request verification
+router.post('/verify/request', asyncHandler(async (req, res) => {
+  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Check current verification status
+  const users = await query(
+    'SELECT verification_status FROM Users WHERE user_id = ?',
+    [req.user.user_id]
+  );
+
+  if (users.length === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  if (users[0].verification_status === 'verified') {
+    return res.status(400).json({ error: 'User is already verified' });
+  }
+
+  if (users[0].verification_status === 'pending') {
+    return res.status(400).json({ error: 'Verification request already pending' });
+  }
+
+  // Update verification status to pending
+  await query(
+    'UPDATE Users SET verification_status = ? WHERE user_id = ?',
+    ['pending', req.user.user_id]
+  );
+
+  // Create notification for moderators (optional - you can implement this later)
+  res.json({
+    success: true,
+    message: 'Verification request submitted successfully'
+  });
+}));
+
+// Admin/Moderator: Verify a user
+router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
+  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Check if requester is moderator
+  const moderators = await query(
+    'SELECT is_moderator FROM Users WHERE user_id = ?',
+    [req.user.user_id]
+  );
+
+  if (moderators.length === 0 || !moderators[0].is_moderator) {
+    return res.status(403).json({ error: 'Forbidden - Admin/Moderator access required' });
+  }
+
+  const { userId } = req.params;
+
+  // Check if target user exists
+  const users = await query(
+    'SELECT user_id, name FROM Users WHERE user_id = ?',
+    [userId]
+  );
+
+  if (users.length === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  // Update user's verification status to verified
+  await query(
+    'UPDATE Users SET verification_status = ? WHERE user_id = ?',
+    ['verified', userId]
+  );
+
+  // Create notification for the verified user
+  await query(
+    `INSERT INTO Notifications (user_id, type, title, content, priority)
+     VALUES (?, 'system', 'Account Verified', 'Your account has been verified!', 'normal')`,
+    [userId]
+  );
+
+  res.json({
+    success: true,
+    message: 'User verified successfully'
+  });
+}));
+
 // Upload profile image
 router.post('/profile/image', upload.single('profile_image'), asyncHandler(async (req, res) => {
   if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
@@ -107,8 +187,9 @@ router.post('/profile/image', upload.single('profile_image'), asyncHandler(async
     }
   }
 
-  // Generate URL for the new image
-  const imageUrl = `/uploads/profiles/${req.file.filename}`;
+  // Generate full URL for the new image
+  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const imageUrl = `${baseUrl}/uploads/profiles/${req.file.filename}`;
 
   // Update user's profile image URL in database
   await query(
@@ -119,6 +200,8 @@ router.post('/profile/image', upload.single('profile_image'), asyncHandler(async
   res.json({
     success: true,
     message: 'Profile image uploaded successfully',
+    image_url: imageUrl,
+    profile_image: imageUrl,
     profile_image_url: imageUrl
   });
 }));
