@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateToken } = require('../middleware/auth.middleware');
-const express = require('express');
 const { validateGroupCreation, validateMessage } = require('../utils/validation');
 const crypto = require('crypto');
 
