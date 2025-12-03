@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateToken } = require('../middleware/auth.middleware');
+const express = require('express');
 const { validateGroupCreation, validateMessage } = require('../utils/validation');
+const crypto = require('crypto');
 
 /**
  * Create a new group
@@ -357,6 +359,166 @@ router.post('/:groupId/members', authenticateToken, async (req, res) => {
 });
 
 /**
+ * Invite a user to a group
+ * POST /api/groups/:groupId/invite
+ * Body: { user_id }
+ */
+router.post('/:groupId/invite', authenticateToken, async (req, res) => {
+    const groupId = parseInt(req.params.groupId);
+    const inviterId = req.user.user_id;
+    const { user_id } = req.body;
+
+    if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+
+    try {
+        // Check inviter role (admin/mod)
+        const [inviterMembership] = await pool.query(
+            `SELECT role FROM GroupMemberships WHERE group_id = ? AND user_id = ? AND status = 'active'`,
+            [groupId, inviterId]
+        );
+
+        if (inviterMembership.length === 0 || !['admin', 'moderator'].includes(inviterMembership[0].role)) {
+            return res.status(403).json({ error: 'Only admins and moderators can invite users' });
+        }
+
+        // Check target user exists
+        const [target] = await pool.query(`SELECT user_id FROM Users WHERE user_id = ?`, [user_id]);
+        if (target.length === 0) return res.status(404).json({ error: 'User not found' });
+
+        // Check membership status
+        const [existing] = await pool.query(`SELECT * FROM GroupMemberships WHERE group_id = ? AND user_id = ?`, [groupId, user_id]);
+
+        // generate invite id
+        const inviteId = crypto.randomBytes(10).toString('hex');
+
+        if (existing.length > 0) {
+            const row = existing[0];
+            if (row.status === 'active') {
+                return res.status(400).json({ error: 'User is already a member' });
+            }
+            if (row.status === 'invited') {
+                // already invited
+                return res.json({ success: true, invite_id: row.invite_id || null, message: 'User already invited' });
+            }
+
+            // Reactivate as invited
+            await pool.query(
+                `UPDATE GroupMemberships SET status = 'invited', invited_by = ?, invite_created_at = NOW(), invite_id = ? WHERE group_id = ? AND user_id = ?`,
+                [inviterId, inviteId, groupId, user_id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO GroupMemberships (group_id, user_id, role, status, invited_by, invite_created_at, invite_id)
+                 VALUES (?, ?, 'member', 'invited', ?, NOW(), ?)`,
+                [groupId, user_id, inviterId, inviteId]
+            );
+        }
+
+        // Send notification to invited user
+        await pool.query(
+            `INSERT INTO Notifications (user_id, type, title, content, related_id, related_type)
+             VALUES (?, 'group_invite', 'Group Invitation', ?, ?, 'group')`,
+            [user_id, `You've been invited to join group ${groupId}`, groupId]
+        );
+
+        res.status(201).json({ success: true, invite_id: inviteId });
+    } catch (error) {
+        console.error('Invite user error:', error);
+        res.status(500).json({ error: 'Failed to invite user' });
+    }
+});
+
+/**
+ * List invites for authenticated user
+ * GET /api/groups/invites
+ */
+router.get('/invites', authenticateToken, async (req, res) => {
+    const userId = req.user.user_id;
+
+    try {
+        const [invites] = await pool.query(
+            `SELECT gm.invite_id, gm.group_id, g.name as group_name, gm.invited_by, u.display_name as invited_by_name, gm.invite_created_at
+             FROM GroupMemberships gm
+             LEFT JOIN UserGroups g ON g.group_id = gm.group_id
+             LEFT JOIN Users u ON u.user_id = gm.invited_by
+             WHERE gm.user_id = ? AND gm.status = 'invited'
+             ORDER BY gm.invite_created_at DESC`,
+            [userId]
+        );
+
+        res.json({ success: true, invites });
+    } catch (error) {
+        console.error('List invites error:', error);
+        res.status(500).json({ error: 'Failed to load invites' });
+    }
+});
+
+/**
+ * Accept invite
+ * POST /api/groups/:groupId/invites/:inviteId/accept
+ */
+router.post('/:groupId/invites/:inviteId/accept', authenticateToken, async (req, res) => {
+    const groupId = parseInt(req.params.groupId);
+    const inviteId = req.params.inviteId;
+    const userId = req.user.user_id;
+
+    try {
+        const [rows] = await pool.query(`SELECT * FROM GroupMemberships WHERE group_id = ? AND user_id = ? AND invite_id = ?`, [groupId, userId, inviteId]);
+        if (rows.length === 0 || rows[0].status !== 'invited') {
+            return res.status(404).json({ error: 'Invite not found' });
+        }
+
+        // Accept: set active
+        await pool.query(`UPDATE GroupMemberships SET status = 'active', joined_at = NOW(), invite_id = NULL, invited_by = NULL, invite_created_at = NULL WHERE group_id = ? AND user_id = ?`, [groupId, userId]);
+
+        // Update member count
+        await pool.query(
+            `UPDATE UserGroups SET member_count = (SELECT COUNT(*) FROM GroupMemberships WHERE group_id = ? AND status = 'active') WHERE group_id = ?`,
+            [groupId, groupId]
+        );
+
+        // Notify inviter (optional)
+        const inviter = rows[0].invited_by;
+        if (inviter) {
+            await pool.query(
+                `INSERT INTO Notifications (user_id, type, title, content, related_id, related_type)
+                 VALUES (?, 'group', 'Invite Accepted', ?, ?, 'group')`,
+                [inviter, `User ${userId} accepted your invite to group ${groupId}`, groupId]
+            );
+        }
+
+        res.json({ success: true, message: 'Joined group' });
+    } catch (error) {
+        console.error('Accept invite error:', error);
+        res.status(500).json({ error: 'Failed to accept invite' });
+    }
+});
+
+/**
+ * Reject invite
+ * POST /api/groups/:groupId/invites/:inviteId/reject
+ */
+router.post('/:groupId/invites/:inviteId/reject', authenticateToken, async (req, res) => {
+    const groupId = parseInt(req.params.groupId);
+    const inviteId = req.params.inviteId;
+    const userId = req.user.user_id;
+
+    try {
+        const [rows] = await pool.query(`SELECT * FROM GroupMemberships WHERE group_id = ? AND user_id = ? AND invite_id = ?`, [groupId, userId, inviteId]);
+        if (rows.length === 0 || rows[0].status !== 'invited') {
+            return res.status(404).json({ error: 'Invite not found' });
+        }
+
+        await pool.query(`UPDATE GroupMemberships SET status = 'rejected', invite_id = NULL WHERE group_id = ? AND user_id = ?`, [groupId, userId]);
+
+        res.json({ success: true, message: 'Invite rejected' });
+    } catch (error) {
+        console.error('Reject invite error:', error);
+        res.status(500).json({ error: 'Failed to reject invite' });
+    }
+});
+
+/**
  * Remove member from group
  * DELETE /api/groups/:groupId/members/:userId
  */
@@ -516,7 +678,7 @@ router.post('/:groupId/leave', authenticateToken, async (req, res) => {
             [groupId, userId]
         );
 
-        if (userMembership[0].role === 'admin' && admins[0].admin_count === 1) {
+        if (userMembership.length > 0 && userMembership[0].role === 'admin' && admins[0].admin_count === 1) {
             return res.status(400).json({ 
                 error: 'Cannot leave: you are the only admin. Promote another member first or delete the group.' 
             });
