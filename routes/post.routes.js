@@ -284,4 +284,207 @@ router.delete("/:post_id/like", asyncHandler(async (req, res) => {
   res.json({ success: true, message: "Unliked post" });
 }));
 
+// Check if user has liked a post
+router.get("/:post_id/like/status", asyncHandler(async (req, res) => {
+  const { post_id } = req.params;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  const userId = req.user.user_id;
+
+  const likes = await query("SELECT * FROM Likes WHERE user_id = ? AND post_id = ?", [userId, post_id]);
+
+  res.json({ 
+    success: true, 
+    liked: likes.length > 0 
+  });
+}));
+
+// Update a post (owner only)
+router.put("/:id", asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { content, post_type, priority, media_urls, tags } = req.body;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Check if post exists and user is the owner
+  const posts = await query("SELECT user_id FROM Posts WHERE post_id = ?", [id]);
+  if (posts.length === 0) return res.status(404).json({ error: "Post not found" });
+  
+  if (posts[0].user_id !== req.user.user_id) {
+    return res.status(403).json({ error: "You can only edit your own posts" });
+  }
+
+  // Validate content if provided
+  if (content !== undefined) {
+    const contentValidation = validatePostContent(content);
+    if (!contentValidation.valid) {
+      return res.status(400).json({ error: contentValidation.message });
+    }
+  }
+
+  // Validate post type if provided
+  if (post_type !== undefined) {
+    const typeValidation = validatePostType(post_type);
+    if (!typeValidation.valid) {
+      return res.status(400).json({ error: typeValidation.message });
+    }
+  }
+
+  // Validate priority if provided
+  if (priority !== undefined) {
+    const priorityValidation = validatePriority(priority);
+    if (!priorityValidation.valid) {
+      return res.status(400).json({ error: priorityValidation.message });
+    }
+  }
+
+  // Build update query dynamically
+  const updates = [];
+  const values = [];
+
+  if (content !== undefined) {
+    updates.push("content = ?");
+    values.push(sanitizeInput(content));
+  }
+  if (post_type !== undefined) {
+    updates.push("post_type = ?");
+    values.push(post_type);
+  }
+  if (priority !== undefined) {
+    updates.push("priority = ?");
+    values.push(priority);
+  }
+  if (media_urls !== undefined) {
+    updates.push("media_urls = ?");
+    values.push(media_urls ? JSON.stringify(media_urls) : null);
+  }
+
+  if (updates.length > 0) {
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+    values.push(id);
+    await query(`UPDATE Posts SET ${updates.join(", ")} WHERE post_id = ?`, values);
+  }
+
+  // Update tags if provided
+  if (tags !== undefined && Array.isArray(tags)) {
+    await query("DELETE FROM PostTags WHERE post_id = ?", [id]);
+    for (const tagId of tags) {
+      await query("INSERT INTO PostTags (post_id, tag_id) VALUES (?, ?)", [id, tagId]);
+    }
+  }
+
+  // Get updated post
+  const updatedPosts = await query(
+    `SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
+     u.verification_status as author_verification
+     FROM Posts p
+     JOIN Users u ON p.user_id = u.user_id
+     WHERE p.post_id = ?`,
+    [id]
+  );
+
+  res.json({ success: true, message: "Post updated successfully", post: updatedPosts[0] });
+}));
+
+// Delete a post (owner only)
+router.delete("/:id", asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Check if post exists and user is the owner
+  const posts = await query("SELECT user_id FROM Posts WHERE post_id = ?", [id]);
+  if (posts.length === 0) return res.status(404).json({ error: "Post not found" });
+  
+  if (posts[0].user_id !== req.user.user_id) {
+    return res.status(403).json({ error: "You can only delete your own posts" });
+  }
+
+  // Soft delete: update status to 'removed' (valid enum value)
+  await query("UPDATE Posts SET status = 'removed', updated_at = CURRENT_TIMESTAMP WHERE post_id = ?", [id]);
+
+  res.json({ success: true, message: "Post deleted successfully" });
+}));
+
+// Update a comment (owner only)
+router.put("/:postId/comments/:commentId", asyncHandler(async (req, res) => {
+  const { postId, commentId } = req.params;
+  const { content } = req.body;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+  if (!content || content.trim().length === 0) {
+    return res.status(400).json({ error: "Content cannot be empty" });
+  }
+
+  // Check if comment exists and user is the owner
+  const comments = await query(
+    "SELECT user_id, post_id FROM Comments WHERE comment_id = ?",
+    [commentId]
+  );
+  
+  if (comments.length === 0) return res.status(404).json({ error: "Comment not found" });
+  
+  if (comments[0].user_id !== req.user.user_id) {
+    return res.status(403).json({ error: "You can only edit your own comments" });
+  }
+
+  if (comments[0].post_id !== parseInt(postId)) {
+    return res.status(400).json({ error: "Comment does not belong to this post" });
+  }
+
+  // Update comment (Comments table doesn't have updated_at column)
+  await query(
+    "UPDATE Comments SET content = ? WHERE comment_id = ?",
+    [content.trim(), commentId]
+  );
+
+  // Get updated comment
+  const updatedComments = await query(
+    `SELECT c.comment_id, c.content, c.created_at, 
+     u.user_id, u.name as author_name, u.profile_image_url as author_image
+     FROM Comments c
+     JOIN Users u ON c.user_id = u.user_id
+     WHERE c.comment_id = ?`,
+    [commentId]
+  );
+
+  res.json({ 
+    success: true, 
+    message: "Comment updated successfully", 
+    comment: updatedComments[0] 
+  });
+}));
+
+// Delete a comment (owner only)
+router.delete("/:postId/comments/:commentId", asyncHandler(async (req, res) => {
+  const { postId, commentId } = req.params;
+
+  if (!req.user?.user_id) return res.status(401).json({ error: "Unauthorized" });
+
+  // Check if comment exists and user is the owner
+  const comments = await query(
+    "SELECT user_id, post_id FROM Comments WHERE comment_id = ?",
+    [commentId]
+  );
+  
+  if (comments.length === 0) return res.status(404).json({ error: "Comment not found" });
+  
+  if (comments[0].user_id !== req.user.user_id) {
+    return res.status(403).json({ error: "You can only delete your own comments" });
+  }
+
+  if (comments[0].post_id !== parseInt(postId)) {
+    return res.status(400).json({ error: "Comment does not belong to this post" });
+  }
+
+  // Delete comment
+  await query("DELETE FROM Comments WHERE comment_id = ?", [commentId]);
+
+  // Decrement comments count
+  await query("UPDATE Posts SET comments_count = comments_count - 1 WHERE post_id = ?", [postId]);
+
+  res.json({ success: true, message: "Comment deleted successfully" });
+}));
+
 module.exports = router;

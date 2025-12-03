@@ -2,19 +2,213 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { calculateDistance, validateCoordinates } = require('../utils/location');
 
 // ------------------------------
-// GET all events
+// GET events within radius (for maps)
+// ------------------------------
+router.get('/nearby', asyncHandler(async (req, res) => {
+    const { latitude, longitude, radius = 10, limit = 100, status = 'upcoming' } = req.query;
+
+    // Validate coordinates
+    if (!latitude || !longitude) {
+        return res.status(400).json({ error: 'Latitude and longitude are required' });
+    }
+
+    const validation = validateCoordinates(parseFloat(latitude), parseFloat(longitude));
+    if (!validation.isValid) {
+        return res.status(400).json({ error: validation.error });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    const radiusKm = parseFloat(radius);
+    const maxResults = parseInt(limit);
+
+    // Get all events with location data
+    let queryStr = `
+        SELECT 
+            e.*,
+            u.name AS organizer_name,
+            u.profile_image_url AS organizer_image,
+            (6371 * acos(
+                cos(radians(?)) * cos(radians(e.location_lat)) * 
+                cos(radians(e.location_lng) - radians(?)) + 
+                sin(radians(?)) * sin(radians(e.location_lat))
+            )) AS distance
+        FROM Events e
+        JOIN Users u ON e.organizer_id = u.user_id
+        WHERE e.location_lat IS NOT NULL 
+        AND e.location_lng IS NOT NULL
+    `;
+
+    const params = [lat, lng, lat];
+
+    if (status && status !== 'all') {
+        queryStr += ` AND e.status = ?`;
+        params.push(status);
+    }
+
+    queryStr += `
+        HAVING distance <= ?
+        ORDER BY distance ASC, e.event_date ASC
+        LIMIT ?
+    `;
+    params.push(radiusKm, maxResults);
+
+    const events = await query(queryStr, params);
+
+    // Add attendee counts
+    for (let event of events) {
+        const [rsvpData] = await query(
+            `SELECT 
+                COUNT(CASE WHEN status = 'going' THEN 1 END) as going_count,
+                COUNT(CASE WHEN status = 'interested' THEN 1 END) as interested_count
+             FROM RSVPs 
+             WHERE event_id = ?`,
+            [event.event_id]
+        );
+        event.going_count = rsvpData?.going_count || 0;
+        event.interested_count = rsvpData?.interested_count || 0;
+    }
+
+    res.json({ 
+        success: true, 
+        events,
+        center: { latitude: lat, longitude: lng },
+        radius: radiusKm,
+        count: events.length
+    });
+}));
+
+// ------------------------------
+// GET events within map bounds (viewport)
+// ------------------------------
+router.get('/map-bounds', asyncHandler(async (req, res) => {
+    const { north, south, east, west, status = 'upcoming', limit = 200 } = req.query;
+
+    // Validate bounds
+    if (!north || !south || !east || !west) {
+        return res.status(400).json({ 
+            error: 'All bounds required: north, south, east, west' 
+        });
+    }
+
+    const bounds = {
+        north: parseFloat(north),
+        south: parseFloat(south),
+        east: parseFloat(east),
+        west: parseFloat(west)
+    };
+
+    // Validate each coordinate
+    if (bounds.north < -90 || bounds.north > 90 || 
+        bounds.south < -90 || bounds.south > 90 ||
+        bounds.east < -180 || bounds.east > 180 || 
+        bounds.west < -180 || bounds.west > 180) {
+        return res.status(400).json({ error: 'Invalid coordinate bounds' });
+    }
+
+    let queryStr = `
+        SELECT 
+            e.*,
+            u.name AS organizer_name,
+            u.profile_image_url AS organizer_image
+        FROM Events e
+        JOIN Users u ON e.organizer_id = u.user_id
+        WHERE e.location_lat IS NOT NULL 
+        AND e.location_lng IS NOT NULL
+        AND e.location_lat BETWEEN ? AND ?
+        AND e.location_lng BETWEEN ? AND ?
+    `;
+
+    const params = [bounds.south, bounds.north, bounds.west, bounds.east];
+
+    if (status && status !== 'all') {
+        queryStr += ` AND e.status = ?`;
+        params.push(status);
+    }
+
+    queryStr += ` ORDER BY e.event_date ASC LIMIT ?`;
+    params.push(parseInt(limit));
+
+    const events = await query(queryStr, params);
+
+    // Add attendee counts
+    for (let event of events) {
+        const [rsvpData] = await query(
+            `SELECT 
+                COUNT(CASE WHEN status = 'going' THEN 1 END) as going_count,
+                COUNT(CASE WHEN status = 'interested' THEN 1 END) as interested_count
+             FROM RSVPs 
+             WHERE event_id = ?`,
+            [event.event_id]
+        );
+        event.going_count = rsvpData?.going_count || 0;
+        event.interested_count = rsvpData?.interested_count || 0;
+    }
+
+    res.json({ 
+        success: true, 
+        events,
+        bounds,
+        count: events.length
+    });
+}));
+
+// ------------------------------
+// GET all events (with optional filters)
 // ------------------------------
 router.get('/', asyncHandler(async (req, res) => {
-    const events = await query(
-        `SELECT e.*, u.name AS organizer_name 
-         FROM Events e
-         JOIN Users u ON e.organizer_id = u.user_id
-         ORDER BY e.event_date ASC`
-    );
+    const { status, from_date, to_date, limit = 100 } = req.query;
 
-    res.json({ success: true, events });
+    let queryStr = `
+        SELECT 
+            e.*, 
+            u.name AS organizer_name,
+            u.profile_image_url AS organizer_image
+        FROM Events e
+        JOIN Users u ON e.organizer_id = u.user_id
+        WHERE 1=1
+    `;
+    const params = [];
+
+    if (status && status !== 'all') {
+        queryStr += ` AND e.status = ?`;
+        params.push(status);
+    }
+
+    if (from_date) {
+        queryStr += ` AND e.event_date >= ?`;
+        params.push(from_date);
+    }
+
+    if (to_date) {
+        queryStr += ` AND e.event_date <= ?`;
+        params.push(to_date);
+    }
+
+    // Parse limit and add to query string directly to avoid parameter binding issue
+    const limitValue = parseInt(limit) || 100;
+    queryStr += ` ORDER BY e.event_date ASC LIMIT ${limitValue}`;
+
+    const events = await query(queryStr, params);
+
+    // Add attendee counts
+    for (let event of events) {
+        const [rsvpData] = await query(
+            `SELECT 
+                COUNT(CASE WHEN status = 'going' THEN 1 END) as going_count,
+                COUNT(CASE WHEN status = 'interested' THEN 1 END) as interested_count
+             FROM RSVPs 
+             WHERE event_id = ?`,
+            [event.event_id]
+        );
+        event.going_count = rsvpData?.going_count || 0;
+        event.interested_count = rsvpData?.interested_count || 0;
+    }
+
+    res.json({ success: true, events, count: events.length });
 }));
 
 // ------------------------------
@@ -54,7 +248,7 @@ router.post('/', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: "Missing required fields" });
 
     // Create post
-    const result = await query(
+    const postResult = await query(
         `INSERT INTO Posts (user_id, content, post_type)
          VALUES (?, ?, ?)`,
         [
@@ -63,10 +257,10 @@ router.post('/', asyncHandler(async (req, res) => {
             'event'
         ]
     );
-    const post_id = result.insertId;
+    const post_id = postResult.insertId;
 
     // Create event
-    await query(
+    const eventResult = await query(
         `INSERT INTO Events
          (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -82,16 +276,22 @@ router.post('/', asyncHandler(async (req, res) => {
             user_id
         ]
     );
+    const event_id = eventResult.insertId;
 
-    const [newEvent] = await query(
-        `SELECT e.*, u.name AS organizer_name
+    // Get the newly created event with organizer info
+    const newEvents = await query(
+        `SELECT e.*, u.name AS organizer_name, u.profile_image_url AS organizer_image
          FROM Events e
-                  JOIN Users u ON e.organizer_id = u.user_id
-         WHERE e.post_id = ?`,
-        [post_id]
+         JOIN Users u ON e.organizer_id = u.user_id
+         WHERE e.event_id = ?`,
+        [event_id]
     );
 
-    res.json({ success: true, event: newEvent });
+    if (newEvents.length === 0) {
+        return res.status(500).json({ error: 'Failed to retrieve created event' });
+    }
+
+    res.json({ success: true, event: newEvents[0] });
 }));
 
 

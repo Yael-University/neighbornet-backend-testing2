@@ -46,9 +46,73 @@ function sanitizeInput(value) {
     return value.trim();
 }
 
+function validateGroupCreation(data) {
+    const errors = [];
+    
+    if (!data.name || typeof data.name !== 'string') {
+        errors.push('Group name is required');
+    } else if (data.name.trim().length < 2) {
+        errors.push('Group name must be at least 2 characters');
+    } else if (data.name.trim().length > 100) {
+        errors.push('Group name is too long (max 100 characters)');
+    }
+    
+    if (data.group_type && !['street', 'block', 'neighborhood', 'interest'].includes(data.group_type)) {
+        errors.push('Invalid group type');
+    }
+    
+    return {
+        isValid: errors.length === 0,
+        errors
+    };
+}
+
+function validateMessage(data) {
+    const errors = [];
+    
+    if (!data.content || typeof data.content !== 'string') {
+        errors.push('Message content is required');
+    } else if (data.content.trim().length === 0) {
+        errors.push('Message cannot be empty');
+    } else if (data.content.length > 5000) {
+        errors.push('Message is too long (max 5000 characters)');
+    }
+    
+    return {
+        isValid: errors.length === 0,
+        errors
+    };
+}
+
+function validateDirectMessage(data) {
+    const errors = [];
+    
+    if (!data.receiver_id) {
+        errors.push('Receiver ID is required');
+    } else if (typeof data.receiver_id !== 'number' || data.receiver_id <= 0) {
+        errors.push('Invalid receiver ID');
+    }
+    
+    if (!data.content || typeof data.content !== 'string') {
+        errors.push('Message content is required');
+    } else if (data.content.trim().length === 0) {
+        errors.push('Message cannot be empty');
+    } else if (data.content.length > 5000) {
+        errors.push('Message is too long (max 5000 characters)');
+    }
+    
+    return {
+        isValid: errors.length === 0,
+        errors
+    };
+}
+
 module.exports = {
     validateEmail,
     validatePassword,
     validateName,
-    sanitizeInput
+    sanitizeInput,
+    validateGroupCreation,
+    validateMessage,
+    validateDirectMessage
 };
