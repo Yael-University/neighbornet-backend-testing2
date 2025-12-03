@@ -1,3 +1,6 @@
+-- Disable foreign key checks to allow dropping tables in any order
+SET FOREIGN_KEY_CHECKS = 0;
+
 DROP TABLE IF EXISTS Likes;
 DROP TABLE IF EXISTS Notifications;
 DROP TABLE IF EXISTS TrustedContacts;
@@ -14,7 +17,11 @@ DROP TABLE IF EXISTS RSVPs;
 DROP TABLE IF EXISTS Events;
 DROP TABLE IF EXISTS Comments;
 DROP TABLE IF EXISTS Posts;
+DROP TABLE IF EXISTS DirectMessages;
 DROP TABLE IF EXISTS Users;
+
+-- Re-enable foreign key checks
+SET FOREIGN_KEY_CHECKS = 1;
 
 CREATE TABLE Users (
 user_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -172,6 +179,21 @@ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (group_id) REFERENCES UserGroups(group_id) ON DELETE CASCADE,
 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 INDEX idx_group (group_id),
+INDEX idx_created (created_at)
+);
+
+CREATE TABLE DirectMessages (
+message_id INT PRIMARY KEY AUTO_INCREMENT,
+sender_id INT NOT NULL,
+receiver_id INT NOT NULL,
+content TEXT NOT NULL,
+media_url VARCHAR(500),
+is_read BOOLEAN DEFAULT FALSE,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (sender_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+FOREIGN KEY (receiver_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+INDEX idx_sender (sender_id),
+INDEX idx_receiver (receiver_id),
 INDEX idx_created (created_at)
 );
 
