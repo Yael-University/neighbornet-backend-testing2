@@ -380,6 +380,7 @@ router.delete('/:event_id', asyncHandler(async (req, res) => {
 
 // ------------------------------
 <<<<<<< HEAD
+<<<<<<< HEAD
 // Add comment to an event (posts comments on associated post)
 // POST /api/events/:event_id/comment
 // ------------------------------
@@ -404,6 +405,8 @@ router.post('/:event_id/comment', asyncHandler(async (req, res) => {
 
     res.json({ success: true, message: 'Comment added to event', comment_id: result.insertId });
 =======
+=======
+>>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
 // RSVP to an event
 // ------------------------------
 router.post('/:event_id/rsvp', asyncHandler(async (req, res) => {
@@ -449,6 +452,9 @@ router.get('/:event_id/rsvp', asyncHandler(async (req, res) => {
     );
 
     res.json({ success: true, rsvp: rsvp || null });
+<<<<<<< HEAD
+>>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
+=======
 >>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
 }));
 
