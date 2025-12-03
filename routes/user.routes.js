@@ -53,24 +53,118 @@ router.get('/profile', asyncHandler(async (req, res) => {
 }));
 
 router.put('/profile', asyncHandler(async (req, res) => {
-  // req.user.user_id should come from auth middleware
-  const { name, bio, street, occupation, age } = req.body;
+  if (!req.user?.user_id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-  if (!req.user?.user_id) return res.status(401).json({ error: 'Unauthorized' });
+  const userId = req.user.user_id;
+  const { name, display_name, username, bio, street, email, phone, occupation, age } = req.body;
 
-  await query(
-      `UPDATE Users
-       SET name = COALESCE(?, name),
-           bio = COALESCE(?, bio),
-           street = COALESCE(?, street),
-           occupation = COALESCE(?, occupation),
-           age = COALESCE(?, age)
-       WHERE user_id = ?`,
-      [name ?? null, bio ?? null, street ?? null, occupation ?? null, age ?? null, req.user.user_id]
+  // Validation: Required fields
+  if (!name || !name.trim()) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Name is required' 
+    });
+  }
+
+  if (!display_name || !display_name.trim()) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Display name is required' 
+    });
+  }
+
+  if (!username || !username.trim()) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Username is required' 
+    });
+  }
+
+  // Validation: Username minimum length
+  if (username.trim().length < 3) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Username must be at least 3 characters' 
+    });
+  }
+
+  // Check if username is already taken (by another user)
+  const existingUsername = await query(
+    'SELECT user_id FROM Users WHERE username = ? AND user_id != ?',
+    [username.trim().toLowerCase(), userId]
   );
 
-  const [updatedUser] = await query('SELECT * FROM Users WHERE user_id = ?', [req.user.user_id]);
-  res.json({ success: true, user: updatedUser });
+  if (existingUsername.length > 0) {
+    return res.status(409).json({ 
+      success: false, 
+      message: 'Username is already taken' 
+    });
+  }
+
+  // Validate email format if provided
+  if (email && email.trim()) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid email format' 
+      });
+    }
+
+    // Check if email is already taken (by another user)
+    const existingEmail = await query(
+      'SELECT user_id FROM Users WHERE email = ? AND user_id != ?',
+      [email.trim(), userId]
+    );
+
+    if (existingEmail.length > 0) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Email is already in use' 
+      });
+    }
+  }
+
+  // Update user profile
+  await query(
+    `UPDATE Users 
+     SET 
+       name = ?,
+       display_name = ?,
+       username = ?,
+       bio = ?,
+       street = ?,
+       email = ?,
+       occupation = ?,
+       age = ?,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = ?`,
+    [
+      name.trim(),
+      display_name.trim(),
+      username.trim().toLowerCase(), // Store username in lowercase
+      bio ? bio.trim() : null,
+      street ? street.trim() : null,
+      email ? email.trim() : null,
+      occupation ? occupation.trim() : null,
+      age || null,
+      userId
+    ]
+  );
+
+  // Fetch updated user data (select specific fields for security)
+  const [updatedUser] = await query(
+    `SELECT user_id, name, display_name, username, email, bio, street, 
+     occupation, age, profile_image_url, verification_status, created_at, updated_at 
+     FROM Users WHERE user_id = ?`,
+    [userId]
+  );
+
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    user: updatedUser
+  });
 }));
 
 
@@ -187,9 +281,9 @@ router.post('/profile/image', upload.single('profile_image'), asyncHandler(async
     }
   }
 
-  // Generate full URL for the new image
-  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
-  const imageUrl = `${baseUrl}/uploads/profiles/${req.file.filename}`;
+  // Generate full URL for the new image using request host
+  // This ensures mobile devices can access the image with the actual server IP
+  const imageUrl = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
 
   // Update user's profile image URL in database
   await query(

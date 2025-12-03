@@ -96,14 +96,16 @@ router.get('/', asyncHandler(async (req, res) => {
             );
         }
 
-        // Get tags
-        const tags = await query(
-            `SELECT t.tag_id, t.name, t.category, t.color
+        // Get tags as string array
+        const tagResults = await query(
+            `SELECT t.name
        FROM PostTags pt
        JOIN Tags t ON pt.tag_id = t.tag_id
        WHERE pt.post_id = ?`,
             [post.post_id]
         );
+        
+        const tags = tagResults.map(t => t.name);
 
         // Get incident details if needed
         let incident_details = null;
@@ -223,13 +225,15 @@ router.get('/priority', asyncHandler(async (req, res) => {
             );
         }
 
-        const tags = await query(
-            `SELECT t.tag_id, t.name, t.category, t.color
+        const tagResults = await query(
+            `SELECT t.name
        FROM PostTags pt
        JOIN Tags t ON pt.tag_id = t.tag_id
        WHERE pt.post_id = ?`,
             [post.post_id]
         );
+        
+        const tags = tagResults.map(t => t.name);
 
         let incident_details = null;
         if (post.post_type === 'incident') {
@@ -332,13 +336,15 @@ router.get('/search', asyncHandler(async (req, res) => {
     const processedPosts = [];
 
     for (const post of posts) {
-        const tags = await query(
-            `SELECT t.tag_id, t.name, t.category, t.color
+        const tagResults = await query(
+            `SELECT t.name
        FROM PostTags pt
        JOIN Tags t ON pt.tag_id = t.tag_id
        WHERE pt.post_id = ?`,
             [post.post_id]
         );
+        
+        const tags = tagResults.map(t => t.name);
 
         processedPosts.push({ ...post, tags });
     }

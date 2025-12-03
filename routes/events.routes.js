@@ -236,10 +236,6 @@ router.get('/:event_id', asyncHandler(async (req, res) => {
 // CREATE a new event
 // Requires logged-in user
 // ------------------------------
-// ------------------------------
-// CREATE a new event
-// Requires logged-in user
-// ------------------------------
 router.post('/', asyncHandler(async (req, res) => {
     const user_id = req.user?.user_id;
     if (!user_id) return res.status(401).json({ error: "Unauthorized" });
@@ -297,8 +293,6 @@ router.post('/', asyncHandler(async (req, res) => {
 
     res.json({ success: true, event: newEvents[0] });
 }));
-
-
 
 // ------------------------------
 // UPDATE an event
@@ -383,10 +377,7 @@ router.delete('/:event_id', asyncHandler(async (req, res) => {
 }));
 
 // ------------------------------
-<<<<<<< HEAD
-<<<<<<< HEAD
 // Add comment to an event (posts comments on associated post)
-// POST /api/events/:event_id/comment
 // ------------------------------
 router.post('/:event_id/comment', asyncHandler(async (req, res) => {
     const { event_id } = req.params;
@@ -408,9 +399,9 @@ router.post('/:event_id/comment', asyncHandler(async (req, res) => {
     await query('UPDATE Posts SET comments_count = COALESCE(comments_count, 0) + 1 WHERE post_id = ?', [post_id]);
 
     res.json({ success: true, message: 'Comment added to event', comment_id: result.insertId });
-=======
-=======
->>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
+}));
+
+// ------------------------------
 // RSVP to an event
 // ------------------------------
 router.post('/:event_id/rsvp', asyncHandler(async (req, res) => {
@@ -456,10 +447,6 @@ router.get('/:event_id/rsvp', asyncHandler(async (req, res) => {
     );
 
     res.json({ success: true, rsvp: rsvp || null });
-<<<<<<< HEAD
->>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
-=======
->>>>>>> 39e69a7049dbd69288cbe9c2a7f9e101d8fbef98
 }));
 
 // ------------------------------

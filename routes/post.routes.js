@@ -3,6 +3,7 @@ const router = express.Router();
 const { query, transaction } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { requireModerator } = require('../middleware/auth.middleware');
+const { uploadPostImage } = require('../middleware/upload.middleware');
 
 // Simple validation functions (inline)
 const validatePostContent = (content) => {
@@ -36,7 +37,7 @@ const sanitizeInput = (input) => {
   return input.trim();
 };
 
-router.post('/', asyncHandler(async (req, res) => {
+router.post('/', uploadPostImage, asyncHandler(async (req, res) => {
   const {
     content,
     post_type = 'general',
@@ -44,9 +45,24 @@ router.post('/', asyncHandler(async (req, res) => {
     media_urls,
     location_lat,
     location_lng,
-    visibility_radius = 5000,
-    tags = []
+    visibility_radius = 5000
   } = req.body;
+
+  // Parse tags if sent as JSON string from FormData
+  let tags = [];
+  if (req.body.tags) {
+    try {
+      tags = typeof req.body.tags === 'string' ? JSON.parse(req.body.tags) : req.body.tags;
+    } catch (e) {
+      tags = [];
+    }
+  }
+
+  // Generate image URL if file was uploaded
+  // Use request host to ensure mobile devices can access images
+  const post_image = req.file 
+    ? `${req.protocol}://${req.get('host')}/uploads/posts/${req.file.filename}`
+    : null;
 
   // Validate content
   const contentValidation = validatePostContent(content);
@@ -68,18 +84,19 @@ router.post('/', asyncHandler(async (req, res) => {
 
   // Use transaction for post creation with tags
   const result = await transaction(async (connection) => {
-    // Insert post
+    // Insert post with image
     const [postResult] = await connection.execute(
       `INSERT INTO Posts (
-        user_id, content, post_type, priority, media_urls,
+        user_id, content, post_type, priority, media_urls, post_image,
         location_lat, location_lng, visibility_radius
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.user.user_id,
         sanitizeInput(content),
         post_type,
         priority,
         media_urls ? JSON.stringify(media_urls) : null,
+        post_image,
         location_lat || null,
         location_lng || null,
         visibility_radius
@@ -88,9 +105,36 @@ router.post('/', asyncHandler(async (req, res) => {
 
     const postId = postResult.insertId;
 
-    // Add tags if provided
+    // Add tags if provided (tags can be tag IDs or tag names)
     if (tags && tags.length > 0) {
-      for (const tagId of tags) {
+      for (const tag of tags) {
+        let tagId;
+        
+        // If tag is a string (tag name), find or create it
+        if (typeof tag === 'string') {
+          const tagName = tag.toLowerCase().trim();
+          
+          // Try to find existing tag
+          const [existingTags] = await connection.execute(
+            'SELECT tag_id FROM Tags WHERE LOWER(name) = ?',
+            [tagName]
+          );
+          
+          if (existingTags.length > 0) {
+            tagId = existingTags[0].tag_id;
+          } else {
+            // Create new tag
+            const [newTag] = await connection.execute(
+              'INSERT INTO Tags (name, category) VALUES (?, ?)',
+              [tagName, 'general']
+            );
+            tagId = newTag.insertId;
+          }
+        } else {
+          // Tag is already an ID
+          tagId = tag;
+        }
+        
         await connection.execute(
           'INSERT INTO PostTags (post_id, tag_id) VALUES (?, ?)',
           [postId, tagId]
@@ -114,7 +158,7 @@ router.post('/', asyncHandler(async (req, res) => {
       );
     }
 
-    // Get the created post with user info
+    // Get the created post with user info and tags
     const [posts] = await connection.execute(
       `SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
        u.verification_status as author_verification
@@ -124,7 +168,20 @@ router.post('/', asyncHandler(async (req, res) => {
       [postId]
     );
 
-    return posts[0];
+    const post = posts[0];
+
+    // Get tags as string array
+    const [postTags] = await connection.execute(
+      `SELECT t.name
+       FROM PostTags pt
+       JOIN Tags t ON pt.tag_id = t.tag_id
+       WHERE pt.post_id = ?`,
+      [postId]
+    );
+
+    post.tags = postTags.map(t => t.name);
+
+    return post;
   });
 
   // Award badge if applicable (first post)
@@ -171,16 +228,16 @@ router.get('/:postId', asyncHandler(async (req, res) => {
 
   const post = posts[0];
 
-  // Get tags for this post
+  // Get tags for this post as string array
   const tags = await query(
-    `SELECT t.tag_id, t.name, t.category, t.color
+    `SELECT t.name
      FROM PostTags pt
      JOIN Tags t ON pt.tag_id = t.tag_id
      WHERE pt.post_id = ?`,
     [postId]
   );
 
-  post.tags = tags;
+  post.tags = tags.map(t => t.name);
 
   // If it's an incident, get incident details
   if (post.post_type === 'incident') {
