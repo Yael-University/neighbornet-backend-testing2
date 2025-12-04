@@ -260,8 +260,55 @@ router.post('/admin/users/:userId/verify', asyncHandler(async (req, res) => {
   });
 }));
 
+// Import compression middleware
+const { compressImage } = require('../middleware/upload.middleware');
+
+// Save user's push notification token
+router.post('/push-token', asyncHandler(async (req, res) => {
+  const { push_token } = req.body;
+  
+  if (!req.user?.user_id) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  if (!push_token) {
+    return res.status(400).json({ success: false, message: 'push_token is required' });
+  }
+
+  await query(
+    'UPDATE Users SET push_token = ? WHERE user_id = ?',
+    [push_token, req.user.user_id]
+  );
+
+  console.log(`📱 Push token saved for user ${req.user.user_id}`);
+
+  res.json({ 
+    success: true, 
+    message: 'Push token saved successfully' 
+  });
+}));
+
+// Remove push token (when user logs out)
+router.delete('/push-token', asyncHandler(async (req, res) => {
+  if (!req.user?.user_id) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  await query(
+    'UPDATE Users SET push_token = NULL WHERE user_id = ?',
+    [req.user.user_id]
+  );
+
+  console.log(`🗑️  Push token removed for user ${req.user.user_id}`);
+
+  res.json({ 
+    success: true, 
+    message: 'Push token removed successfully' 
+  });
+}));
+
 // Upload profile image
-router.post('/profile/image', upload.single('profile_image'), asyncHandler(async (req, res) => {
+router.post('/profile/image', upload.single('profile_image'), compressImage, asyncHandler(async (req, res) => {
   if (!req.user?.user_id) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
   if (!req.file) {

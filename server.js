@@ -5,6 +5,8 @@ const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const morgan = require('morgan');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
@@ -20,8 +22,28 @@ const followRoutes = require('./routes/follows.routes');
 
 const { errorHandler } = require('./middleware/error.middleware');
 const { authenticateToken } = require('./middleware/auth.middleware');
+const { configureSocket } = require('./config/socket');
+const { initializeSocketIO } = require('./utils/notifications');
 
 const app = express();
+const server = http.createServer(app);
+
+// Initialize Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+// Configure Socket.IO with authentication and event handlers
+configureSocket(io);
+
+// Initialize notification system with Socket.IO
+initializeSocketIO(io);
 
 // Configure helmet with relaxed CSP for images
 app.use(helmet({
@@ -94,11 +116,33 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5050;
-app.listen(PORT, () => {
-  console.log(`\n✅ NeighborNet Backend running on http://localhost:${PORT}`);
+const HOST = '0.0.0.0'; // Bind to all network interfaces for mobile access
+
+// Increase server timeout for slow networks/large images
+server.timeout = 60000; // 60 seconds
+server.keepAliveTimeout = 65000; // 65 seconds
+server.headersTimeout = 66000; // 66 seconds
+
+server.listen(PORT, HOST, () => {
+  const networkInterfaces = require('os').networkInterfaces();
+  let localIP = 'localhost';
+  
+  // Find local network IP
+  Object.keys(networkInterfaces).forEach(interfaceName => {
+    networkInterfaces[interfaceName].forEach(iface => {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        localIP = iface.address;
+      }
+    });
+  });
+
+  console.log(`\n✅ NeighborNet Backend running on:`);
+  console.log(`   - Local:   http://localhost:${PORT}`);
+  console.log(`   - Network: http://${localIP}:${PORT}`);
+  console.log(`🔔 WebSocket server running on ws://${localIP}:${PORT}`);
   console.log(`📁 Static files served from: ${path.join(__dirname, 'uploads')}`);
-  console.log(`🖼️  Test image URL: http://localhost:${PORT}/uploads/profiles/2_1764796118638.jpg`);
+  console.log(`🖼️  Test image: http://${localIP}:${PORT}/uploads/profiles/2_1764820020805.jpg`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}\n`);
 });
 
-module.exports = app;
+module.exports = { app, server, io };

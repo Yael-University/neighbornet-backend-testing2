@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const sharp = require('sharp');
 
 // Ensure upload directories exist
 const ensureDirectoryExists = (directory) => {
@@ -63,7 +64,43 @@ const uploadPostImage = multer({
   fileFilter: imageFileFilter
 }).single('post_image');
 
+// Compress uploaded images
+const compressImage = async (req, res, next) => {
+  if (!req.file) {
+    return next();
+  }
+
+  try {
+    const filePath = req.file.path;
+    const tempPath = `${filePath}.tmp`;
+
+    // Compress the image
+    await sharp(filePath)
+      .resize(1200, 1200, { 
+        fit: 'inside', 
+        withoutEnlargement: true 
+      })
+      .jpeg({ 
+        quality: 85,
+        progressive: true 
+      })
+      .toFile(tempPath);
+
+    // Replace original with compressed version
+    fs.unlinkSync(filePath);
+    fs.renameSync(tempPath, filePath);
+
+    console.log(`📸 Image compressed: ${req.file.filename}`);
+    next();
+  } catch (error) {
+    console.error('Image compression error:', error);
+    // Continue even if compression fails
+    next();
+  }
+};
+
 module.exports = {
   uploadProfileImage,
-  uploadPostImage
+  uploadPostImage,
+  compressImage
 };

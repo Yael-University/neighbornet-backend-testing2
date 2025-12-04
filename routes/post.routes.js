@@ -3,7 +3,7 @@ const router = express.Router();
 const { query, transaction } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { requireModerator } = require('../middleware/auth.middleware');
-const { uploadPostImage } = require('../middleware/upload.middleware');
+const { uploadPostImage, compressImage } = require('../middleware/upload.middleware');
 
 // Simple validation functions (inline)
 const validatePostContent = (content) => {
@@ -37,7 +37,7 @@ const sanitizeInput = (input) => {
   return input.trim();
 };
 
-router.post('/', uploadPostImage, asyncHandler(async (req, res) => {
+router.post('/', uploadPostImage, compressImage, asyncHandler(async (req, res) => {
   const {
     content,
     post_type = 'general',

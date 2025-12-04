@@ -71,9 +71,9 @@ router.post('/send', authenticateToken, async (req, res) => {
 
 /**
  * Get all messages between the authenticated user and another user
- * GET /api/direct/:userId/messages
+ * GET /api/direct/messages/:userId
  */
-router.get('/:userId/messages', authenticateToken, async (req, res) => {
+router.get('/messages/:userId', authenticateToken, async (req, res) => {
     const userId = parseInt(req.params.userId);
     const selfId = req.user.user_id;
 

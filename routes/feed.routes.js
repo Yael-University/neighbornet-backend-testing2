@@ -138,6 +138,7 @@ router.get('/', asyncHandler(async (req, res) => {
             is_verified: post.is_verified,
             media_urls,
             post_image: post.post_image,
+            image: post.post_image, // Alias for compatibility
             location_lat: post.location_lat,
             location_lng: post.location_lng,
             visibility_radius: post.visibility_radius,
@@ -149,9 +150,11 @@ router.get('/', asyncHandler(async (req, res) => {
             updated_at: post.updated_at,
             author_id: post.author_id,
             author_name: post.author_name,
+            name: post.author_name, // Alias for compatibility
             username: post.username,
             display_name: post.display_name,
             author_image: post.author_image,
+            profile_image: post.author_image, // Alias for frontend compatibility
             author_verification: post.author_verification,
             author_street: post.author_street,
             tags,
