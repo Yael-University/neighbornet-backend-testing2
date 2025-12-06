@@ -19,7 +19,9 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 router.get('/', asyncHandler(async (req, res) => {
-    // Simplified version - get all active posts first
+    res.setHeader('Cache-Control', 'no-store'); // Disable caching, fix for comment num not updating on feed
+
+    // Get all active posts first
     if (!req.user || !req.user.user_id) {
         return res.status(401).json({ error: 'User not authenticated' });
     }
@@ -38,39 +40,43 @@ router.get('/', asyncHandler(async (req, res) => {
 
     // Simple query - just get all active posts
     const posts = await query(
-        `SELECT 
-      p.post_id,
-      p.user_id,
-      p.content,
-      p.post_type,
-      p.priority,
-      p.is_verified,
-      p.media_urls,
-      p.post_image,
-      p.location_lat,
-      p.location_lng,
-      p.visibility_radius,
-      p.likes_count,
-      p.comments_count,
-      p.is_pinned,
-      p.status,
-      p.created_at,
-      p.updated_at,
-      u.user_id as author_id,
-      u.username as username,
-      u.display_name as display_name,
-      u.name as author_name,
-      u.profile_image_url as author_image,
-      u.verification_status as author_verification,
-      u.street as author_street,
-      u.latitude as author_latitude,
-      u.longitude as author_longitude
-    FROM Posts p
-    JOIN Users u ON p.user_id = u.user_id
-    WHERE p.status = ?
-    ORDER BY p.is_pinned DESC, p.created_at DESC`,
+        `SELECT
+             p.post_id,
+             p.user_id,
+             p.content,
+             p.post_type,
+             p.priority,
+             p.is_verified,
+             p.media_urls,
+             p.post_image,
+             p.location_lat,
+             p.location_lng,
+             p.visibility_radius,
+             p.likes_count,
+             COUNT(c.comment_id) AS comments_count,   -- ✅ Fixed
+             p.is_pinned,
+             p.status,
+             p.created_at,
+             p.updated_at,
+             u.user_id as author_id,
+             u.username as username,
+             u.display_name as display_name,
+             u.name as author_name,
+             u.profile_image_url as author_image,
+             u.verification_status as author_verification,
+             u.street as author_street,
+             u.latitude as author_latitude,
+             u.longitude as author_longitude
+         FROM Posts p
+                  JOIN Users u ON p.user_id = u.user_id
+                  LEFT JOIN Comments c ON c.post_id = p.post_id  -- ✅ Added join
+         WHERE p.status = ?
+         GROUP BY p.post_id                            -- ✅ Required for COUNT
+         ORDER BY p.is_pinned DESC, p.created_at DESC`,
         ['active']
     );
+
+
 
     // Process posts
     const processedPosts = [];

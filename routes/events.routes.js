@@ -275,6 +275,19 @@ router.post('/', asyncHandler(async (req, res) => {
     );
     const event_id = eventResult.insertId;
 
+    // Automatically sign up the creator
+    await query(
+        'INSERT INTO EventSignups (event_id, user_id) VALUES (?, ?)',
+        [event_id, user_id]
+    );
+
+    // Update current attendees count
+    await query(
+        'UPDATE Events SET current_attendees = 1 WHERE event_id = ?',
+        [event_id]
+    );
+
+
     // Get the newly created event with organizer info
     const newEvents = await query(
         `SELECT e.*, u.name AS organizer_name, u.profile_image_url AS organizer_image
