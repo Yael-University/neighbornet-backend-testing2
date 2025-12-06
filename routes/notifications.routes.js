@@ -71,8 +71,8 @@ router.get('/', asyncHandler(async (req, res) => {
     queryStr += ' AND n.is_read = FALSE';
   }
 
-  queryStr += ' ORDER BY n.created_at DESC LIMIT ?';
-  params.push(parseInt(limit));
+  const limitValue = parseInt(limit);
+  queryStr += ` ORDER BY n.created_at DESC LIMIT ${limitValue}`;
 
   const notifications = await query(queryStr, params);
 
