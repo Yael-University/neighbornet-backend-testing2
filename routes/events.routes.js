@@ -6,67 +6,78 @@ const { calculateDistance, validateCoordinates } = require('../utils/location');
 const { checkAndAwardBadges } = require('../utils/badges');
 const { createNotification } = require('../utils/notifications');
 
-// ------------------------------
 // GET events within radius (for maps)
-// ------------------------------
 router.get('/nearby', asyncHandler(async (req, res) => {
-    const { latitude, longitude, radius = 10, limit = 100, status = 'upcoming' } = req.query;
+    let { latitude, longitude, radius = 10, limit = 100, status } = req.query;
 
-    // Validate coordinates
+    // Validate required coordinates
     if (!latitude || !longitude) {
         return res.status(400).json({ error: 'Latitude and longitude are required' });
     }
 
-    const validation = validateCoordinates(parseFloat(latitude), parseFloat(longitude));
+    // Convert to numbers
+    latitude = Number(latitude);
+    longitude = Number(longitude);
+    radius = Number(radius) || 10;
+    limit = Number(limit) || 100;
+
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+        return res.status(400).json({ error: 'Invalid latitude or longitude' });
+    }
+
+    const validation = validateCoordinates(latitude, longitude);
     if (!validation.isValid) {
         return res.status(400).json({ error: validation.error });
     }
 
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
-    const radiusKm = parseFloat(radius);
-    const maxResults = parseInt(limit);
-
-    // Get all events with location data
+    // Base query
     let queryStr = `
-        SELECT 
+        SELECT
             e.*,
             u.name AS organizer_name,
             u.profile_image_url AS organizer_image,
             (6371 * acos(
-                cos(radians(?)) * cos(radians(e.location_lat)) * 
-                cos(radians(e.location_lng) - radians(?)) + 
-                sin(radians(?)) * sin(radians(e.location_lat))
-            )) AS distance
+                    cos(radians(?)) * cos(radians(e.location_lat)) *
+                    cos(radians(e.location_lng) - radians(?)) +
+                    sin(radians(?)) * sin(radians(e.location_lat))
+                    )) AS distance
         FROM Events e
-        JOIN Users u ON e.organizer_id = u.user_id
-        WHERE e.location_lat IS NOT NULL 
-        AND e.location_lng IS NOT NULL
+                 JOIN Users u ON e.organizer_id = u.user_id
+        WHERE e.location_lat IS NOT NULL
+          AND e.location_lng IS NOT NULL
     `;
 
-    const params = [lat, lng, lat];
+    const params = [latitude, longitude, latitude]; // 3 placeholders for distance calculation
 
+    // Add status filter if provided
     if (status && status !== 'all') {
         queryStr += ` AND e.status = ?`;
-        params.push(status);
+        params.push(status); // placeholder #4
     }
 
+    // Add HAVING and LIMIT
     queryStr += `
         HAVING distance <= ?
         ORDER BY distance ASC, e.event_date ASC
-        LIMIT ?
+        LIMIT ${limit}
     `;
-    params.push(radiusKm, maxResults);
+    params.push(radius); // only radius remains as a placeholder
 
+
+    console.log('Query String:', queryStr);
+    console.log('Params:', params);
+
+
+    // Execute query
     const events = await query(queryStr, params);
 
-    // Add attendee counts
+    // Add RSVP counts
     for (let event of events) {
         const [rsvpData] = await query(
-            `SELECT 
-                COUNT(CASE WHEN status = 'going' THEN 1 END) as going_count,
-                COUNT(CASE WHEN status = 'interested' THEN 1 END) as interested_count
-             FROM RSVPs 
+            `SELECT
+                 COUNT(CASE WHEN status = 'going' THEN 1 END) AS going_count,
+                 COUNT(CASE WHEN status = 'interested' THEN 1 END) AS interested_count
+             FROM RSVPs
              WHERE event_id = ?`,
             [event.event_id]
         );
@@ -74,14 +85,16 @@ router.get('/nearby', asyncHandler(async (req, res) => {
         event.interested_count = rsvpData?.interested_count || 0;
     }
 
-    res.json({ 
-        success: true, 
+    res.json({
+        success: true,
         events,
-        center: { latitude: lat, longitude: lng },
-        radius: radiusKm,
+        center: { latitude, longitude },
+        radius,
         count: events.length
     });
 }));
+
+
 
 // ------------------------------
 // GET events within map bounds (viewport)
@@ -241,7 +254,7 @@ router.post('/', asyncHandler(async (req, res) => {
     const user_id = req.user?.user_id;
     if (!user_id) return res.status(401).json({ error: "Unauthorized" });
 
-    const { title, description, event_date, location, location_lat, location_lng, max_attendees } = req.body;
+    const { title, description, event_date, location, location_lat, location_lng, poi, max_attendees } = req.body;
     if (!title || !event_date)
         return res.status(400).json({ error: "Missing required fields" });
 
@@ -260,8 +273,8 @@ router.post('/', asyncHandler(async (req, res) => {
     // Create event
     const eventResult = await query(
         `INSERT INTO Events
-         (post_id, title, description, event_date, location, location_lat, location_lng, max_attendees, organizer_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (post_id, title, description, event_date, location, location_lat, location_lng, poi, max_attendees, organizer_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             post_id,
             title,
@@ -270,6 +283,7 @@ router.post('/', asyncHandler(async (req, res) => {
             location ?? null,
             location_lat ?? null,
             location_lng ?? null,
+            poi ?? null,
             max_attendees ?? null,
             user_id
         ]
@@ -334,6 +348,7 @@ router.put('/:event_id', asyncHandler(async (req, res) => {
         location,
         location_lat,
         location_lng,
+        poi,
         max_attendees,
         status
     } = req.body;
@@ -346,6 +361,7 @@ router.put('/:event_id', asyncHandler(async (req, res) => {
          location = COALESCE(?, location),
          location_lat = COALESCE(?, location_lat),
          location_lng = COALESCE(?, location_lng),
+         poi = COALESCE(?, poi),
          max_attendees = COALESCE(?, max_attendees),
          status = COALESCE(?, status)
          WHERE event_id = ?`,
@@ -356,6 +372,7 @@ router.put('/:event_id', asyncHandler(async (req, res) => {
             location ?? null,
             location_lat ?? null,
             location_lng ?? null,
+            poi ?? null,
             max_attendees ?? null,
             status ?? null,
             event_id
