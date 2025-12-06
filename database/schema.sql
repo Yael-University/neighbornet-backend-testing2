@@ -18,6 +18,7 @@ DROP TABLE IF EXISTS RSVPs;
 DROP TABLE IF EXISTS Events;
 DROP TABLE IF EXISTS Comments;
 DROP TABLE IF EXISTS Posts;
+DROP TABLE IF EXISTS Follows;
 DROP TABLE IF EXISTS DirectMessages;
 DROP TABLE IF EXISTS Users;
 
@@ -31,6 +32,7 @@ password_hash VARCHAR(255) NOT NULL,
 name VARCHAR(100) NOT NULL,
 display_name VARCHAR(100) NOT NULL,
 username VARCHAR(100) UNIQUE NOT NULL,
+phone VARCHAR(50),
 age INT,
 occupation VARCHAR(100),
 skills TEXT,
@@ -44,12 +46,19 @@ verification_status ENUM('unverified','pending','verified') DEFAULT 'unverified'
 profile_visibility ENUM('public','neighborhood','private') DEFAULT 'neighborhood',
 is_moderator BOOLEAN DEFAULT FALSE,
 profile_image_url VARCHAR(500),
+email_verified BOOLEAN DEFAULT FALSE,
+verification_token VARCHAR(255),
+verification_token_expires DATETIME,
+reset_password_token VARCHAR(255),
+reset_password_expires DATETIME,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 last_login TIMESTAMP NULL,
 INDEX idx_email (email),
 INDEX idx_username (username),
-INDEX idx_street (street)
+INDEX idx_street (street),
+INDEX idx_verification_token (verification_token),
+INDEX idx_reset_token (reset_password_token)
 );
 
 CREATE TABLE Posts (
@@ -173,12 +182,16 @@ group_id INT NOT NULL,
 user_id INT NOT NULL,
 role ENUM('admin', 'moderator', 'member') DEFAULT 'member',
 status ENUM('active', 'pending', 'removed') DEFAULT 'active',
+invited_by INT NULL,
+invite_created_at DATETIME NULL,
+invite_id VARCHAR(128) NULL,
 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (group_id) REFERENCES UserGroups(group_id) ON DELETE CASCADE,
 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 UNIQUE KEY unique_membership (group_id, user_id),
 INDEX idx_group (group_id),
-INDEX idx_user (user_id)
+INDEX idx_user (user_id),
+INDEX idx_group_invite_id (invite_id)
 );
 
 CREATE TABLE ChatMessages (
@@ -209,6 +222,19 @@ FOREIGN KEY (receiver_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 INDEX idx_sender (sender_id),
 INDEX idx_receiver (receiver_id),
 INDEX idx_created (created_at)
+);
+
+CREATE TABLE Follows (
+follow_id INT PRIMARY KEY AUTO_INCREMENT,
+follower_id INT NOT NULL,
+followed_id INT NOT NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (follower_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+FOREIGN KEY (followed_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+UNIQUE KEY unique_follow (follower_id, followed_id),
+INDEX idx_follower (follower_id),
+INDEX idx_followed (followed_id),
+CHECK (follower_id != followed_id)
 );
 
 CREATE TABLE Tags (
