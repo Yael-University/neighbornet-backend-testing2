@@ -4,6 +4,7 @@ const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { calculateDistance, validateCoordinates } = require('../utils/location');
 const { checkAndAwardBadges } = require('../utils/badges');
+const { createNotification } = require('../utils/notifications');
 
 // ------------------------------
 // GET events within radius (for maps)
@@ -565,6 +566,25 @@ router.post('/:eventId/signup', asyncHandler(async (req, res) => {
         'UPDATE Events SET current_attendees = current_attendees + 1 WHERE event_id = ?',
         [eventId]
     );
+
+    // Get event and user info for notification
+    const [eventDetails] = await query(
+        'SELECT e.title, e.organizer_id, u.display_name as attendee_name FROM Events e, Users u WHERE e.event_id = ? AND u.user_id = ?',
+        [eventId, userId]
+    );
+
+    // Send notification to event organizer
+    if (eventDetails && eventDetails.organizer_id !== userId) {
+        await createNotification({
+            user_id: eventDetails.organizer_id,
+            type: 'event',
+            title: 'New Event Signup',
+            content: `${eventDetails.attendee_name} signed up for your event: ${eventDetails.title}`,
+            related_id: eventId,
+            related_type: 'event',
+            priority: 'normal'
+        });
+    }
 
     // Check and award badges for event attendance
     await checkAndAwardBadges(userId);

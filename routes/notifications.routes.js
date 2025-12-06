@@ -49,19 +49,15 @@ router.get('/', asyncHandler(async (req, res) => {
   }
 
   let queryStr = `
-    SELECT n.*, 
-           CASE 
-             WHEN n.related_type = 'user' THEN u.display_name
-             WHEN n.related_type = 'post' THEN p.content
-             WHEN n.related_type = 'event' THEN e.title
-             WHEN n.related_type = 'group' THEN g.name
-             ELSE NULL
-           END as related_name
+    SELECT n.notification_id,
+           n.user_id,
+           n.type,
+           n.title,
+           n.content as message,
+           n.related_id,
+           n.is_read,
+           n.created_at
     FROM Notifications n
-    LEFT JOIN Users u ON n.related_type = 'user' AND n.related_id = u.user_id
-    LEFT JOIN Posts p ON n.related_type = 'post' AND n.related_id = p.post_id
-    LEFT JOIN Events e ON n.related_type = 'event' AND n.related_id = e.event_id
-    LEFT JOIN UserGroups g ON n.related_type = 'group' AND n.related_id = g.group_id
     WHERE n.user_id = ?
   `;
 
@@ -71,16 +67,32 @@ router.get('/', asyncHandler(async (req, res) => {
     queryStr += ' AND n.is_read = FALSE';
   }
 
-  queryStr += ' ORDER BY n.created_at DESC LIMIT ?';
-  params.push(parseInt(limit));
+  const limitValue = parseInt(limit);
+  queryStr += ` ORDER BY n.created_at DESC LIMIT ${limitValue}`;
 
-  const notifications = await query(queryStr, params);
+  const notificationsData = await query(queryStr, params);
 
-  res.json({
-    success: true,
-    notifications,
-    count: notifications.length
-  });
+  // Map database types to frontend types
+  const typeMapping = {
+    'alert': 'post_like',
+    'message': 'post_comment', 
+    'event': 'event_rsvp',
+    'badge': 'badge_earned',
+    'system': 'event_reminder'
+  };
+
+  const notifications = notificationsData.map(n => ({
+    notification_id: n.notification_id,
+    user_id: n.user_id,
+    type: typeMapping[n.type] || n.type,
+    title: n.title,
+    message: n.message,
+    related_id: n.related_id,
+    is_read: n.is_read ? true : false,
+    created_at: n.created_at
+  }));
+
+  res.json({ notifications });
 }));
 
 // Get unread notification count

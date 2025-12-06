@@ -4,6 +4,7 @@ const { query, transaction } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { requireModerator } = require('../middleware/auth.middleware');
 const { uploadPostImage, compressImage } = require('../middleware/upload.middleware');
+const { createNotification } = require('../utils/notifications');
 
 // Simple validation functions (inline)
 const validatePostContent = (content) => {
@@ -282,6 +283,25 @@ router.post("/:post_id/comments", asyncHandler(async (req, res) => {
 
   await query("UPDATE Posts SET comments_count = comments_count + 1 WHERE post_id = ?", [post_id]);
 
+  // Get post owner and commenter info for notification
+  const [postData] = await query(
+    "SELECT p.user_id as post_owner_id, u.display_name as commenter_name FROM Posts p, Users u WHERE p.post_id = ? AND u.user_id = ?",
+    [post_id, userId]
+  );
+  
+  // Only send notification if someone else commented (not self-comment)
+  if (postData && postData.post_owner_id !== userId) {
+    await createNotification({
+      user_id: postData.post_owner_id,
+      type: 'message',
+      title: 'New Comment',
+      content: `${postData.commenter_name} commented on your post`,
+      related_id: post_id,
+      related_type: 'post',
+      priority: 'normal'
+    });
+  }
+
   res.json({ success: true, message: "Comment added", comment_id: result.insertId });
 }));
 
@@ -318,6 +338,26 @@ router.post("/:post_id/like", asyncHandler(async (req, res) => {
   try {
     await query("INSERT INTO Likes (user_id, post_id) VALUES (?, ?)", [userId, post_id]);
     await query("UPDATE Posts SET likes_count = likes_count + 1 WHERE post_id = ?", [post_id]);
+    
+    // Get post owner and liker info for notification
+    const [postData] = await query(
+      "SELECT p.user_id as post_owner_id, u.display_name as liker_name FROM Posts p, Users u WHERE p.post_id = ? AND u.user_id = ?",
+      [post_id, userId]
+    );
+    
+    // Only send notification if someone else liked the post (not self-like)
+    if (postData && postData.post_owner_id !== userId) {
+      await createNotification({
+        user_id: postData.post_owner_id,
+        type: 'alert',
+        title: 'New Like',
+        content: `${postData.liker_name} liked your post`,
+        related_id: post_id,
+        related_type: 'post',
+        priority: 'normal'
+      });
+    }
+    
     res.json({ success: true, message: "Post liked!" });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "User already liked this post" });

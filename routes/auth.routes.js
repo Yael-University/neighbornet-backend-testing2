@@ -105,6 +105,85 @@ router.post('/register', asyncHandler(async (req, res) => {
     });
 }));
 
+// POST /api/auth/resend-verification - Resend verification email
+router.post('/resend-verification', asyncHandler(async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Email is required' 
+        });
+    }
+
+    // Find user
+    const users = await query(`
+        SELECT user_id, email, name, email_verified 
+        FROM Users 
+        WHERE email = ?
+    `, [email.toLowerCase()]);
+
+    if (users.length === 0) {
+        // Don't reveal if email exists (security)
+        return res.json({ 
+            success: true, 
+            message: 'If the email exists and is unverified, a new verification link has been sent' 
+        });
+    }
+
+    const user = users[0];
+
+    // Check if already verified
+    if (user.email_verified) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Email is already verified. You can log in.' 
+        });
+    }
+
+    // Generate new verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Update user with new token
+    await query(`
+        UPDATE Users 
+        SET verification_token = ?,
+            verification_token_expires = ?
+        WHERE user_id = ?
+    `, [verificationToken, tokenExpires, user.user_id]);
+
+    // Send new verification email
+    const verificationLink = `${req.protocol}://${req.get('host')}/api/auth/verify-email?token=${verificationToken}`;
+    
+    await sendEmail({
+        to: user.email,
+        subject: 'Verify Your NeighborNet Email - New Link',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #4A90E2;">Email Verification</h2>
+                <p>Hi ${sanitizeInput(user.name)},</p>
+                <p>You requested a new verification link. Please verify your email address by clicking the link below:</p>
+                <p style="text-align: center; margin: 30px 0;">
+                    <a href="${verificationLink}" 
+                       style="background-color: #4A90E2; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+                        Verify Email
+                    </a>
+                </p>
+                <p style="color: #666; font-size: 14px;">Or copy and paste this link: ${verificationLink}</p>
+                <p style="color: #666; font-size: 14px;">This link will expire in 24 hours.</p>
+                <p style="color: #999; font-size: 12px;">If you didn't request this, please ignore this email.</p>
+            </div>
+        `,
+        text: `Verify your email: ${verificationLink}. Link expires in 24 hours.`
+    });
+
+    res.json({ 
+        success: true, 
+        message: 'A new verification link has been sent to your email' 
+    });
+}));
+
 // GET /api/auth/verify-email - Email verification
 router.get('/verify-email', asyncHandler(async (req, res) => {
     const { token } = req.query;

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { createNotification } = require('../utils/notifications');
 
 // POST /api/follows/follow/:user_id - Follow a user
 router.post('/follow/:user_id', asyncHandler(async (req, res) => {
@@ -38,6 +39,25 @@ router.post('/follow/:user_id', asyncHandler(async (req, res) => {
         'INSERT INTO Follows (follower_id, followed_id) VALUES (?, ?)',
         [followerId, followedId]
     );
+
+    // Get follower info for notification
+    const [followerInfo] = await query(
+        'SELECT display_name FROM Users WHERE user_id = ?',
+        [followerId]
+    );
+
+    // Send notification to followed user
+    if (followerInfo) {
+        await createNotification({
+            user_id: followedId,
+            type: 'alert',
+            title: 'New Follower',
+            content: `${followerInfo.display_name} started following you`,
+            related_id: followerId,
+            related_type: 'user',
+            priority: 'normal'
+        });
+    }
 
     res.json({ success: true, message: 'Successfully followed user' });
 }));
