@@ -652,4 +652,35 @@ router.delete('/:eventId/signup', asyncHandler(async (req, res) => {
     });
 }));
 
+// ------------------------------
+// GET event by post_id (FOR FEED → EVENT NAVIGATION)
+// ------------------------------
+router.get('/by-post/:post_id', asyncHandler(async (req, res) => {
+    const { post_id } = req.params;
+
+    const events = await query(
+        `SELECT 
+            e.*, 
+            u.name AS organizer_name,
+            u.profile_image_url AS organizer_image
+         FROM Events e
+         JOIN Users u ON e.organizer_id = u.user_id
+         WHERE e.post_id = ?`,
+        [post_id]
+    );
+
+    if (events.length === 0) {
+        return res.status(404).json({
+            success: false,
+            error: 'Event not found for this post'
+        });
+    }
+
+    res.json({
+        success: true,
+        event: events[0]
+    });
+}));
+
+
 module.exports = router;
