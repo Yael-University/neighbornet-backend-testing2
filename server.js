@@ -19,6 +19,8 @@ const notificationRoutes = require('./routes/notifications.routes');
 const badgeRoutes = require('./routes/badges.routes');
 const contactRoutes = require('./routes/contacts.routes');
 const followRoutes = require('./routes/follows.routes');
+const mediaRoutes = require('./routes/media.routes');
+const reactionsRoutes = require('./routes/reactions.routes');
 
 const { errorHandler } = require('./middleware/error.middleware');
 const { authenticateToken } = require('./middleware/auth.middleware');
@@ -63,10 +65,19 @@ app.use(cors({
   credentials: true
 }));
 
+// Rate limiting with proper JSON response and higher limits
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests from this IP, please try again later.'
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 1000, // Increased from 100 to 1000 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      error: 'Too many requests, please try again later.',
+      code: 'RATE_LIMIT_EXCEEDED',
+      retry_after: 60
+    });
+  }
 });
 console.log({
   authRoutes: typeof authRoutes,
@@ -87,15 +98,17 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 
-app.use('/api/', limiter);
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan('combined'));
 
+// Health check endpoint (no rate limit)
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Apply rate limiting only to API routes (after health check)
+app.use('/api/', limiter);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
@@ -108,6 +121,8 @@ app.use('/api/notifications', authenticateToken, notificationRoutes);
 app.use('/api/badges', authenticateToken, badgeRoutes);
 app.use('/api/contacts', authenticateToken, contactRoutes);
 app.use('/api/follows', authenticateToken, followRoutes);
+app.use('/api', mediaRoutes);
+app.use('/api', reactionsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

@@ -1,6 +1,8 @@
 -- Disable foreign key checks to allow dropping tables in any order
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS MessageReactions;
+DROP TABLE IF EXISTS NotificationTokens;
 DROP TABLE IF EXISTS Likes;
 DROP TABLE IF EXISTS Notifications;
 DROP TABLE IF EXISTS TrustedContacts;
@@ -182,7 +184,7 @@ membership_id INT PRIMARY KEY AUTO_INCREMENT,
 group_id INT NOT NULL,
 user_id INT NOT NULL,
 role ENUM('admin', 'moderator', 'member') DEFAULT 'member',
-status ENUM('active', 'pending', 'removed') DEFAULT 'active',
+status ENUM('active', 'pending', 'removed', 'invited', 'rejected') DEFAULT 'active',
 invited_by INT NULL,
 invite_created_at DATETIME NULL,
 invite_id VARCHAR(128) NULL,
@@ -199,31 +201,57 @@ CREATE TABLE ChatMessages (
 message_id INT PRIMARY KEY AUTO_INCREMENT,
 group_id INT NOT NULL,
 user_id INT NOT NULL,
-content TEXT NOT NULL,
+content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 message_type ENUM('text', 'image', 'alert', 'system') DEFAULT 'text',
 media_url VARCHAR(500),
+media_type VARCHAR(50) NULL,
+media_size INT NULL,
+thumbnail_url VARCHAR(500) NULL,
+duration INT NULL,
+caption TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
 is_read BOOLEAN DEFAULT FALSE,
+edited_at TIMESTAMP NULL,
+is_edited BOOLEAN DEFAULT FALSE,
+reply_to_message_id INT NULL,
+reply_to_content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+reply_to_user_id INT NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (group_id) REFERENCES UserGroups(group_id) ON DELETE CASCADE,
 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 INDEX idx_group (group_id),
-INDEX idx_created (created_at)
-);
+INDEX idx_created (created_at),
+INDEX idx_chat_edited (is_edited),
+INDEX idx_chat_media_type (media_type),
+INDEX idx_reply (reply_to_message_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE DirectMessages (
 message_id INT PRIMARY KEY AUTO_INCREMENT,
 sender_id INT NOT NULL,
 receiver_id INT NOT NULL,
-content TEXT NOT NULL,
+content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
 media_url VARCHAR(500),
+media_type VARCHAR(50) NULL,
+media_size INT NULL,
+thumbnail_url VARCHAR(500) NULL,
+duration INT NULL,
+caption TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
 is_read BOOLEAN DEFAULT FALSE,
+edited_at TIMESTAMP NULL,
+is_edited BOOLEAN DEFAULT FALSE,
+reply_to_message_id INT NULL,
+reply_to_content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+reply_to_sender_id INT NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 FOREIGN KEY (sender_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 FOREIGN KEY (receiver_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 INDEX idx_sender (sender_id),
 INDEX idx_receiver (receiver_id),
-INDEX idx_created (created_at)
-);
+INDEX idx_created (created_at),
+INDEX idx_dm_edited (is_edited),
+INDEX idx_dm_media_type (media_type),
+INDEX idx_reply (reply_to_message_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE Follows (
 follow_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -298,7 +326,7 @@ INDEX idx_trusted (trusted_user_id)
 CREATE TABLE Notifications (
 notification_id INT PRIMARY KEY AUTO_INCREMENT,
 user_id INT NOT NULL,
-type ENUM('alert', 'message', 'event', 'badge', 'verification', 'system') NOT NULL,
+type ENUM('alert', 'message', 'event', 'badge', 'verification', 'system', 'group_invite', 'group') NOT NULL,
 title VARCHAR(255) NOT NULL,
 content TEXT,
 related_id INT,
@@ -310,6 +338,35 @@ FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
 INDEX idx_user (user_id),
 INDEX idx_read (is_read),
 INDEX idx_created (created_at)
+);
+
+CREATE TABLE NotificationTokens (
+token_id INT PRIMARY KEY AUTO_INCREMENT,
+user_id INT NOT NULL,
+token VARCHAR(500) NOT NULL,
+platform ENUM('ios', 'android', 'web') NOT NULL,
+device_id VARCHAR(255) NULL,
+is_active BOOLEAN DEFAULT TRUE,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+last_used_at TIMESTAMP NULL,
+UNIQUE KEY unique_token (token),
+INDEX idx_user (user_id),
+INDEX idx_active (is_active),
+FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
+);
+
+CREATE TABLE MessageReactions (
+reaction_id INT PRIMARY KEY AUTO_INCREMENT,
+message_id INT NOT NULL,
+message_type ENUM('dm', 'group') NOT NULL,
+user_id INT NOT NULL,
+emoji VARCHAR(10) NOT NULL,
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+UNIQUE KEY unique_reaction (message_id, message_type, user_id, emoji),
+INDEX idx_message (message_id, message_type),
+INDEX idx_user (user_id),
+FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE Likes (
