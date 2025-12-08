@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { pool, query } = require('../config/database');
+const {query } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth.middleware');
 const { validateDirectMessage } = require('../utils/validation');
 
@@ -109,8 +109,8 @@ router.get('/:userId/messages', authenticateToken, async (req, res) => {
             FROM DirectMessages dm
             INNER JOIN Users u ON dm.sender_id = u.user_id
             LEFT JOIN Users ru ON dm.reply_to_sender_id = ru.user_id
-            WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
-               OR (dm.sender_id = ? AND dm.receiver_id = ?)
+            WHERE ((dm.sender_id = ? AND dm.receiver_id = ?)
+               OR (dm.sender_id = ? AND dm.receiver_id = ?))
         `;
         const params = [selfId, userId, userId, selfId];
 
