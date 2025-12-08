@@ -330,7 +330,7 @@ router.post('/profile/image', upload.single('profile_image'), compressImage, asy
 
   // Generate full URL for the new image using request host
   // This ensures mobile devices can access the image with the actual server IP
-  const imageUrl = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+  const imageUrl = `https}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
 
   // Update user's profile image URL in database
   await query(

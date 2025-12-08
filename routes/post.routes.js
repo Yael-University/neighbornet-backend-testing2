@@ -62,7 +62,7 @@ router.post('/', uploadPostImage, compressImage, asyncHandler(async (req, res) =
   // Generate image URL if file was uploaded
   // Use request host to ensure mobile devices can access images
   const post_image = req.file 
-    ? `${req.protocol}://${req.get('host')}/uploads/posts/${req.file.filename}`
+    ? `https://${req.get('host')}/uploads/posts/${req.file.filename}`
     : null;
 
   // Validate content
@@ -215,7 +215,7 @@ router.get('/:postId', asyncHandler(async (req, res) => {
   const { postId } = req.params;
 
   const posts = await query(
-    `SELECT p.*, u.name as author_name, u.username as username, u.profile_image_url as author_image,
+    `SELECT p.*, u.name as author_name, u.display_name, u.username as username, u.profile_image_url as author_image,
      u.verification_status as author_verification, u.user_id as author_id
      FROM Posts p
      JOIN Users u ON p.user_id = u.user_id
@@ -583,5 +583,73 @@ router.delete("/:postId/comments/:commentId", asyncHandler(async (req, res) => {
 
   res.json({ success: true, message: "Comment deleted successfully" });
 }));
+
+// Get nearby posts based on user location
+router.get('/nearby', asyncHandler(async (req, res) => {
+  console.log('📍 /nearby route hit');
+  console.log('📥 Query params:', req.query);
+
+  let { latitude, longitude, radius, limit } = req.query;
+
+  latitude = parseFloat(latitude);
+  longitude = parseFloat(longitude);
+  radius = parseFloat(radius) || 5; // default 5 km
+  limit = parseInt(limit) || 50; // default 50 posts
+
+  if (isNaN(latitude) || isNaN(longitude)) {
+    console.warn('⚠️ Invalid latitude or longitude');
+    return res.status(400).json({ error: 'Latitude and longitude are required and must be numbers' });
+  }
+
+  const sql = `
+    SELECT p.*, u.name as author_name, u.profile_image_url as author_image,
+           u.verification_status as author_verification,
+           (6371 * acos(
+               cos(radians(?)) * cos(radians(CAST(location_lat AS DECIMAL(10,6)))) *
+               cos(radians(CAST(location_lng AS DECIMAL(10,6))) - radians(?)) +
+               sin(radians(?)) * sin(radians(CAST(location_lat AS DECIMAL(10,6))))
+           )) AS distance_km
+    FROM Posts p
+           JOIN Users u ON p.user_id = u.user_id
+    WHERE p.status = 'active'
+      AND location_lat IS NOT NULL
+      AND location_lng IS NOT NULL
+    HAVING distance_km <= ?
+    ORDER BY distance_km ASC
+      LIMIT ?
+  `;
+
+  const params = [latitude, longitude, latitude, radius, limit];
+  console.log('📝 SQL params:', params);
+
+  try {
+    const posts = await query(sql, params);
+    console.log(`✅ Fetched ${posts.length} posts`);
+
+    // Fetch tags for each post
+    for (const post of posts) {
+      const tags = await query(
+          `SELECT t.name
+         FROM PostTags pt
+         JOIN Tags t ON pt.tag_id = t.tag_id
+         WHERE pt.post_id = ?`,
+          [post.post_id]
+      );
+      post.tags = tags.map(t => t.name);
+    }
+
+    res.json({ success: true, posts });
+  } catch (err) {
+    console.error('❌ MySQL query failed', {
+      message: err.message,
+      code: err.code,
+      sql: err.sql,
+      params,
+    });
+    res.status(500).json({ error: 'Database query failed', details: err.message });
+  }
+}));
+
+
 
 module.exports = router;

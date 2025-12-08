@@ -8,75 +8,57 @@ const { createNotification } = require('../utils/notifications');
 
 // GET events within radius (for maps)
 router.get('/nearby', asyncHandler(async (req, res) => {
-    let { latitude, longitude, radius = 10, limit = 100, status } = req.query;
+    const { latitude, longitude, radius = 5, status = 'upcoming', limit = 100 } = req.query;
 
-    // Validate required coordinates
     if (!latitude || !longitude) {
         return res.status(400).json({ error: 'Latitude and longitude are required' });
     }
 
-    // Convert to numbers
-    latitude = Number(latitude);
-    longitude = Number(longitude);
-    radius = Number(radius) || 10;
-    limit = Number(limit) || 100;
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+    const radiusKm = parseFloat(radius);
+    const limitNum = parseInt(limit, 10);
 
-    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        return res.status(400).json({ error: 'Invalid latitude or longitude' });
-    }
+    // Bounding box
+    const latDelta = radiusKm / 111;
+    const lngDelta = radiusKm / (111 * Math.cos(latNum * Math.PI / 180));
 
-    const validation = validateCoordinates(latitude, longitude);
-    if (!validation.isValid) {
-        return res.status(400).json({ error: validation.error });
-    }
+    const minLat = latNum - latDelta;
+    const maxLat = latNum + latDelta;
+    const minLng = lngNum - lngDelta;
+    const maxLng = lngNum + lngDelta;
 
-    // Base query
-    let queryStr = `
-        SELECT
+    // Use template literal for LIMIT, leave other values as params
+    const sql = `
+        SELECT 
             e.*,
             u.name AS organizer_name,
             u.profile_image_url AS organizer_image,
             (6371 * acos(
-                    cos(radians(?)) * cos(radians(e.location_lat)) *
-                    cos(radians(e.location_lng) - radians(?)) +
-                    sin(radians(?)) * sin(radians(e.location_lat))
-                    )) AS distance
+                cos(radians(?)) * cos(radians(e.location_lat)) *
+                cos(radians(e.location_lng) - radians(?)) +
+                sin(radians(?)) * sin(radians(e.location_lat))
+            )) AS distance
         FROM Events e
-                 JOIN Users u ON e.organizer_id = u.user_id
-        WHERE e.location_lat IS NOT NULL
-          AND e.location_lng IS NOT NULL
-    `;
-
-    const params = [latitude, longitude, latitude]; // 3 placeholders for distance calculation
-
-    // Add status filter if provided
-    if (status && status !== 'all') {
-        queryStr += ` AND e.status = ?`;
-        params.push(status); // placeholder #4
-    }
-
-    // Add HAVING and LIMIT
-    queryStr += `
+        JOIN Users u ON e.organizer_id = u.user_id
+        WHERE e.location_lat BETWEEN ? AND ?
+          AND e.location_lng BETWEEN ? AND ?
+          AND e.status = ?
         HAVING distance <= ?
         ORDER BY distance ASC, e.event_date ASC
-        LIMIT ${limit}
+        LIMIT ${limitNum}
     `;
-    params.push(radius); // only radius remains as a placeholder
 
+    const params = [latNum, lngNum, latNum, minLat, maxLat, minLng, maxLng, status, radiusKm];
 
-    console.log('Query String:', queryStr);
-    console.log('Params:', params);
+    const events = await query(sql, params);
 
-
-    // Execute query
-    const events = await query(queryStr, params);
-
-    // Add RSVP counts
+    // Add attendee counts
     for (let event of events) {
         const [rsvpData] = await query(
             `SELECT
-                 COUNT(CASE WHEN status = 'going' THEN 1 END) AS going_count,
-                 COUNT(CASE WHEN status = 'interested' THEN 1 END) AS interested_count
+                 COUNT(CASE WHEN status = 'going' THEN 1 END) as going_count,
+                 COUNT(CASE WHEN status = 'interested' THEN 1 END) as interested_count
              FROM RSVPs
              WHERE event_id = ?`,
             [event.event_id]
@@ -85,13 +67,7 @@ router.get('/nearby', asyncHandler(async (req, res) => {
         event.interested_count = rsvpData?.interested_count || 0;
     }
 
-    res.json({
-        success: true,
-        events,
-        center: { latitude, longitude },
-        radius,
-        count: events.length
-    });
+    res.json({ success: true, events, count: events.length });
 }));
 
 
